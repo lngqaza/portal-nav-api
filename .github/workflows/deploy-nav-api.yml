@@ -122,19 +122,23 @@ jobs:
 
       - name: Wait for service RUNNING
         run: |
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             SERVICE_ARN=$(aws apprunner list-services \
               --query "ServiceSummaryList[?ServiceName=='$SERVICE_NAME'].ServiceArn" \
               --output text)
             STATUS=$(aws apprunner describe-service \
               --service-arn $SERVICE_ARN \
               --query "Service.Status" --output text)
-            echo "Attempt $i/30 — Status: $STATUS"
+            echo "Attempt $i/60 — Status: $STATUS"
             if [ "$STATUS" = "RUNNING" ]; then
               URL=$(aws apprunner describe-service --service-arn $SERVICE_ARN --query "Service.ServiceUrl" --output text)
               echo "Service live at: https://$URL"
               exit 0
             fi
-            sleep 10
+            if [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "UPDATE_FAILED" ]; then
+              echo "ERROR: Service deployment failed with status $STATUS"
+              exit 1
+            fi
+            sleep 15
           done
           echo "ERROR: Timed out waiting for RUNNING status" && exit 1
