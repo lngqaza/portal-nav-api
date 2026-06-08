@@ -80,6 +80,9 @@ jobs:
             aws apprunner create-service \
               --service-name $SERVICE_NAME \
               --source-configuration "{
+                \"AuthenticationConfiguration\": {
+                  \"AccessRoleArn\": \"arn:aws:iam::684756697968:role/portal-nav-apprunner-ecr-role\"
+                },
                 \"ImageRepository\": {
                   \"ImageIdentifier\": \"$IMAGE_URI\",
                   \"ImageConfiguration\": {
