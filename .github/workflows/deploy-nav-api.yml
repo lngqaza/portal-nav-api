@@ -1,0 +1,139 @@
+name: Deploy portal-nav-api
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'portal-nav-api/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eu-west-1
+  ECR_REPO: 684756697968.dkr.ecr.eu-west-1.amazonaws.com/portal-nav-api
+  SERVICE_NAME: portal-nav-api
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portal-nav-api
+    outputs:
+      image_uri: ${{ steps.push.outputs.image_uri }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create ECR repo if needed
+        run: |
+          aws ecr describe-repositories --repository-names $SERVICE_NAME 2>/dev/null || \
+          aws ecr create-repository \
+            --repository-name $SERVICE_NAME \
+            --image-scanning-configuration scanOnPush=true \
+            --region $AWS_REGION
+
+      - name: Build and push
+        id: push
+        run: |
+          IMAGE_URI=$ECR_REPO:${{ github.sha }}
+          docker build -t $IMAGE_URI -t $ECR_REPO:latest .
+          docker push $IMAGE_URI
+          docker push $ECR_REPO:latest
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Prune old images (keep latest 5)
+        run: |
+          DIGESTS=$(aws ecr describe-images \
+            --repository-name $SERVICE_NAME \
+            --query 'sort_by(imageDetails,&imagePushedAt)[:-5].imageDigest' \
+            --output text)
+          for DIGEST in $DIGESTS; do
+            aws ecr batch-delete-image \
+              --repository-name $SERVICE_NAME \
+              --image-ids imageDigest=$DIGEST || true
+          done
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Deploy to App Runner
+        env:
+          IMAGE_URI: ${{ needs.build.outputs.image_uri }}
+        run: |
+          SERVICE_ARN=$(aws apprunner list-services \
+            --query "ServiceSummaryList[?ServiceName=='$SERVICE_NAME'].ServiceArn" \
+            --output text)
+
+          if [ -z "$SERVICE_ARN" ]; then
+            echo "Creating new App Runner service..."
+            aws apprunner create-service \
+              --service-name $SERVICE_NAME \
+              --source-configuration "{
+                \"ImageRepository\": {
+                  \"ImageIdentifier\": \"$IMAGE_URI\",
+                  \"ImageConfiguration\": {
+                    \"Port\": \"8000\",
+                    \"RuntimeEnvironmentVariables\": {
+                      \"DATABASE_URL\": \"${{ secrets.NAV_DATABASE_URL }}\",
+                      \"API_KEYS\": \"${{ secrets.NAV_API_KEYS }}\",
+                      \"ADMIN_TOKEN\": \"${{ secrets.NAV_ADMIN_TOKEN }}\"
+                    }
+                  },
+                  \"ImageRepositoryType\": \"ECR\"
+                },
+                \"AutoDeploymentsEnabled\": false
+              }" \
+              --instance-configuration "Cpu=0.25 vCPU,Memory=0.5 GB" \
+              --health-check-configuration "Protocol=HTTP,Path=/health,Interval=10,Timeout=5,HealthyThreshold=1,UnhealthyThreshold=3"
+          else
+            echo "Updating existing App Runner service $SERVICE_ARN..."
+            aws apprunner update-service \
+              --service-arn $SERVICE_ARN \
+              --source-configuration "{
+                \"ImageRepository\": {
+                  \"ImageIdentifier\": \"$IMAGE_URI\",
+                  \"ImageConfiguration\": {
+                    \"Port\": \"8000\",
+                    \"RuntimeEnvironmentVariables\": {
+                      \"DATABASE_URL\": \"${{ secrets.NAV_DATABASE_URL }}\",
+                      \"API_KEYS\": \"${{ secrets.NAV_API_KEYS }}\",
+                      \"ADMIN_TOKEN\": \"${{ secrets.NAV_ADMIN_TOKEN }}\"
+                    }
+                  },
+                  \"ImageRepositoryType\": \"ECR\"
+                }
+              }"
+          fi
+
+      - name: Wait for service RUNNING
+        run: |
+          for i in $(seq 1 30); do
+            SERVICE_ARN=$(aws apprunner list-services \
+              --query "ServiceSummaryList[?ServiceName=='$SERVICE_NAME'].ServiceArn" \
+              --output text)
+            STATUS=$(aws apprunner describe-service \
+              --service-arn $SERVICE_ARN \
+              --query "Service.Status" --output text)
+            echo "Attempt $i/30 — Status: $STATUS"
+            if [ "$STATUS" = "RUNNING" ]; then
+              URL=$(aws apprunner describe-service --service-arn $SERVICE_ARN --query "Service.ServiceUrl" --output text)
+              echo "Service live at: https://$URL"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "ERROR: Timed out waiting for RUNNING status" && exit 1
