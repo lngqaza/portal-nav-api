@@ -1,4 +1,4 @@
-# Stage 1: Build — download models, install deps
+# Stage 1: Build — export ONNX models, install runtime deps
 FROM python:3.12-slim AS builder
 
 WORKDIR /build
@@ -7,33 +7,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential curl git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-# Pin numpy<2.0 first — transformers/optimum require numpy>=1.17,<2.0
-RUN pip install --no-cache-dir --prefix=/install "numpy==1.26.4"
-RUN pip install --no-cache-dir --prefix=/install \
+# Install model export toolchain globally (build-time only, not copied to runtime)
+RUN pip install --no-cache-dir \
+    "numpy==1.26.4" \
+    "onnxscript" \
+    "torch==2.3.1" \
     "sentence-transformers==3.0.1" \
     "optimum[onnxruntime]==1.21.2" \
     "onnxruntime==1.18.1" \
     "transformers==4.42.4"
+
+# Export all-MiniLM-L6-v2 (embedding model) to ONNX via optimum-cli
+RUN optimum-cli export onnx \
+    --model sentence-transformers/all-MiniLM-L6-v2 \
+    --task feature-extraction \
+    /models/minilm
+
+# Export cross-encoder (re-ranker) to ONNX via optimum-cli
+RUN optimum-cli export onnx \
+    --model cross-encoder/ms-marco-MiniLM-L-6-v2 \
+    --task text-classification \
+    /models/reranker
+
+# Install runtime dependencies to /install prefix (copied to stage 2)
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install "numpy==1.26.4"
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-# Export all-MiniLM-L6-v2 to ONNX
-RUN PYTHONPATH=/install/lib/python3.12/site-packages python -c "\
-from optimum.onnxruntime import ORTModelForFeatureExtraction; \
-from transformers import AutoTokenizer; \
-m = ORTModelForFeatureExtraction.from_pretrained('sentence-transformers/all-MiniLM-L6-v2', export=True); \
-m.save_pretrained('/models/minilm'); \
-AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').save_pretrained('/models/minilm')"
-
-# Export cross-encoder to ONNX
-RUN PYTHONPATH=/install/lib/python3.12/site-packages python -c "\
-from optimum.onnxruntime import ORTModelForSequenceClassification; \
-from transformers import AutoTokenizer; \
-m = ORTModelForSequenceClassification.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2', export=True); \
-m.save_pretrained('/models/reranker'); \
-AutoTokenizer.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2').save_pretrained('/models/reranker')"
-
-# Stage 2: Runtime
+# Stage 2: Runtime — lean image, no build tools, no PyTorch
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
