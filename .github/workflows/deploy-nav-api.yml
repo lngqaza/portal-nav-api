@@ -78,6 +78,8 @@ jobs:
             --query "ServiceSummaryList[?ServiceName=='$SERVICE_NAME'].ServiceArn" \
             --output text)
 
+          VPC_CONNECTOR_ARN="arn:aws:apprunner:eu-west-1:684756697968:vpcconnector/portal-nav-vpc-connector/1/759227adb4f2471a965bc4cc84886ce1"
+
           if [ -z "$SERVICE_ARN" ]; then
             echo "Creating new App Runner service..."
             aws apprunner create-service \
@@ -97,6 +99,7 @@ jobs:
                 },
                 \"AutoDeploymentsEnabled\": false
               }" \
+              --network-configuration "{\"EgressConfiguration\":{\"EgressType\":\"VPC\",\"VpcConnectorArn\":\"$VPC_CONNECTOR_ARN\"}}" \
               --instance-configuration "Cpu=0.25 vCPU,Memory=0.5 GB" \
               --health-check-configuration "Protocol=HTTP,Path=/health,Interval=10,Timeout=5,HealthyThreshold=1,UnhealthyThreshold=3"
           else
