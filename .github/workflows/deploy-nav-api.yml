@@ -2,9 +2,7 @@ name: Deploy portal-nav-api
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'portal-nav-api/**'
+    branches: [main, master]
   workflow_dispatch:
 
 env:
@@ -15,9 +13,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: portal-nav-api
     outputs:
       image_uri: ${{ steps.push.outputs.image_uri }}
     steps:
