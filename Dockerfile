@@ -8,7 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install sentence-transformers optimum[onnxruntime] onnxruntime transformers
+# Pin numpy<2.0 first — transformers/optimum require numpy>=1.17,<2.0
+RUN pip install --no-cache-dir --prefix=/install "numpy==1.26.4"
+RUN pip install --no-cache-dir --prefix=/install \
+    "sentence-transformers==3.0.1" \
+    "optimum[onnxruntime]==1.21.2" \
+    "onnxruntime==1.18.1" \
+    "transformers==4.42.4"
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # Export all-MiniLM-L6-v2 to ONNX
