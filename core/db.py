@@ -117,6 +117,46 @@ def _run_migrations():
     CREATE INDEX IF NOT EXISTS idx_hot_paths_rank    ON nav_hot_paths(hit_count DESC);
     CREATE INDEX IF NOT EXISTS idx_query_log_created ON nav_query_log(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_query_log_layer   ON nav_query_log(layer_used);
+
+    -- DB-01: hit_count must never go negative.
+    -- Idempotent: only adds the constraint if it does not already exist.
+    DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'chk_hit_count_non_negative'
+              AND conrelid = 'nav_hot_paths'::regclass
+        ) THEN
+            ALTER TABLE nav_hot_paths
+                ADD CONSTRAINT chk_hit_count_non_negative CHECK (hit_count >= 0);
+        END IF;
+    END $$;
+
+    -- nav_hot_paths.path must be unique — upsert_path depends on one row per path.
+    -- Idempotent: only adds the constraint if it does not already exist.
+    DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'uq_hot_paths_path'
+              AND conrelid = 'nav_hot_paths'::regclass
+        ) THEN
+            ALTER TABLE nav_hot_paths
+                ADD CONSTRAINT uq_hot_paths_path UNIQUE (path);
+        END IF;
+    END $$;
+
+    -- nav_query_log.layer_used must be one of the four valid cascade levels.
+    -- Enforces the VALID_LAYERS invariant at the DB level.
+    DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'chk_layer_used_valid'
+              AND conrelid = 'nav_query_log'::regclass
+        ) THEN
+            ALTER TABLE nav_query_log
+                ADD CONSTRAINT chk_layer_used_valid
+                    CHECK (layer_used IN ('L0', 'L1', 'L2', 'MISS'));
+        END IF;
+    END $$;
     """
     with get_conn() as conn:
         with conn.cursor() as cur:

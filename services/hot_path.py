@@ -98,20 +98,40 @@ def get_top_paths(limit: int = 70) -> list:
 
 
 def upsert_path(data: dict) -> dict:
+    """
+    Insert or update a hot-path entry atomically.
+
+    Uses INSERT ... ON CONFLICT (path) DO UPDATE so the operation is a single
+    atomic statement — no SELECT-then-INSERT race condition that the old
+    implementation had.  The uq_hot_paths_path UNIQUE constraint (added in
+    migration 001) is the conflict target.
+
+    Args:
+        data: dict with keys path (str), label (str), aliases (list), pinned (bool).
+
+    Returns:
+        dict with id, path, label of the upserted row.
+    """
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM nav_hot_paths WHERE path=%s", (data["path"],))
-            if cur.fetchone():
-                cur.execute(
-                    "UPDATE nav_hot_paths SET label=%s,aliases=%s,pinned=%s,updated_at=now() WHERE path=%s",
-                    (data["label"], data.get("aliases", []), data.get("pinned", False), data["path"]),
-                )
-            else:
-                cur.execute(
-                    "INSERT INTO nav_hot_paths (path,label,aliases,pinned) VALUES (%s,%s,%s,%s)",
-                    (data["path"], data["label"], data.get("aliases", []), data.get("pinned", False)),
-                )
-            cur.execute("SELECT id,path,label FROM nav_hot_paths WHERE path=%s", (data["path"],))
+            cur.execute(
+                """
+                INSERT INTO nav_hot_paths (path, label, aliases, pinned)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (path) DO UPDATE
+                    SET label      = EXCLUDED.label,
+                        aliases    = EXCLUDED.aliases,
+                        pinned     = EXCLUDED.pinned,
+                        updated_at = now()
+                RETURNING id, path, label
+                """,
+                (
+                    data["path"],
+                    data["label"],
+                    data.get("aliases", []),
+                    data.get("pinned", False),
+                ),
+            )
             row = cur.fetchone()
         conn.commit()
     return {"id": str(row[0]), "path": row[1], "label": row[2]}
