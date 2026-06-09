@@ -11,3 +11,4 @@ build/
 # ONNX binary models (built at Docker build time, not stored in git)
 onnx_models/
 *.onnx
+tests/wave3/node_modules/
