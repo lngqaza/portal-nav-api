@@ -4,13 +4,14 @@ Routes: /query  /query/batch  /query/suggest  /health  /admin/*
 """
 import json
 import logging
-import os
-
-logger = logging.getLogger()
-logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # Module-level init — runs once per cold start, reused on warm invocations
 from core.config import settings
+
+# Configure log level from settings after the import above.
+# settings.LOG_LEVEL reads LOG_LEVEL from the environment via core.config.
+logger = logging.getLogger()
+logger.setLevel(settings.LOG_LEVEL)
 from core.db import init_pool
 from services.embedding import load_model
 from services.reranker import load_reranker
