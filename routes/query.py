@@ -24,9 +24,19 @@ def handle_batch(body: dict):
 
 
 def handle_suggest(q: str):
-    rows = get_top_paths(limit=50)
-    filtered = [
-        {"path": r["path"], "label": r["label"]}
-        for r in rows if q.lower() in r["label"].lower()
-    ][:5]
-    return _r(200, filtered)
+    from core.db import get_conn
+    # Search both nav_index labels and hot_path labels
+    results = []
+    if q:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT path, label FROM nav_index
+                    WHERE lower(label) LIKE %s OR lower(description) LIKE %s
+                    ORDER BY label LIMIT 5
+                    """,
+                    (f"%{q.lower()}%", f"%{q.lower()}%"),
+                )
+                results = [{"path": r[0], "label": r[1]} for r in cur.fetchall()]
+    return _r(200, results)

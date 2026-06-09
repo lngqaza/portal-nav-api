@@ -97,18 +97,21 @@ jobs:
               --code ImageUri=$IMAGE_URI \
               --role $ROLE_ARN \
               --memory-size 1024 \
-              --timeout 30 \
+              --timeout 60 \
               --environment "$ENV_VARS" \
               --vpc-config SubnetIds=$VPC_SUBNETS,SecurityGroupIds=$VPC_SGS
             aws lambda wait function-active --function-name $FUNCTION_NAME
           else
-            echo "Updating Lambda..."
+            echo "Updating Lambda code..."
             aws lambda update-function-code \
               --function-name $FUNCTION_NAME \
               --image-uri $IMAGE_URI
             aws lambda wait function-updated --function-name $FUNCTION_NAME
+            echo "Updating Lambda config..."
             aws lambda update-function-configuration \
               --function-name $FUNCTION_NAME \
+              --timeout 60 \
+              --memory-size 1024 \
               --environment "$ENV_VARS"
             aws lambda wait function-updated --function-name $FUNCTION_NAME
           fi
