@@ -87,10 +87,10 @@ jobs:
       - name: pip-audit
         run: |
           pip install pip-audit
-          # -f json outputs to stdout; capture for artifact, || true so it doesn't abort
-          pip-audit -r requirements.txt -f json -S high > pip-audit.json || true
-          # Hard gate: fail if HIGH or CRITICAL CVE with a known fix exists
-          pip-audit -r requirements.txt -S high
+          # Capture JSON for artifact; -o writes to file (not -S which is --strict bool flag)
+          pip-audit -r requirements.txt -f json -o pip-audit.json || true
+          # Hard gate: non-zero exit if any known CVE exists in our direct dependencies
+          pip-audit -r requirements.txt
 
       # ── OWASP Dependency-Check (thorough NVD scan) ────────────────────
       - name: OWASP Dependency-Check
@@ -162,10 +162,9 @@ jobs:
           output: trivy-image.sarif
           severity: CRITICAL,HIGH
           exit-code: "1"
-          # Only fail on CVEs that have a fix available — Lambda base-image OS packages
-          # often have unfixed CVEs we cannot patch. Unfixed findings still appear in
-          # the GitHub Security tab for visibility.
-          trivy-flags: "--ignore-unfixed"
+          # Only fail on CVEs with a fix available — Lambda base-image OS packages
+          # often have unfixed CVEs we cannot patch. They still appear in Security tab.
+          ignore-unfixed: true
 
       - name: Upload Trivy SARIF
         if: always()
