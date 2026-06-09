@@ -35,12 +35,14 @@ def rerank(query: str, candidates: List[EmbeddingResult]) -> Optional[EmbeddingR
         return candidates[0] if candidates[0].score >= settings.L2_THRESHOLD else None
     try:
         scores = []
+        valid_inputs = {inp.name for inp in _session.get_inputs()}
         for c in candidates:
-            inp = _tokenizer(
+            raw = _tokenizer(
                 query, c.label + " " + c.description,
                 return_tensors="np", truncation=True, max_length=128, padding=True,
             )
-            out = _session.run(None, dict(inp))
+            inp = {k: v for k, v in raw.items() if k in valid_inputs}
+            out = _session.run(None, inp)
             scores.append(float(out[0][0][0]))
         best_idx = scores.index(max(scores))
         best = candidates[best_idx]

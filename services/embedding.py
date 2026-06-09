@@ -36,7 +36,10 @@ def encode(text: str) -> Optional[np.ndarray]:
         return None
     try:
         enc = _tokenizer(text, padding=True, truncation=True, max_length=128, return_tensors="np")
-        out = _session.run(None, dict(enc))
+        # Filter to only inputs the ONNX model actually accepts (e.g. no token_type_ids)
+        valid_inputs = {inp.name for inp in _session.get_inputs()}
+        model_inputs = {k: v for k, v in enc.items() if k in valid_inputs}
+        out = _session.run(None, model_inputs)
         mask = enc["attention_mask"][:, :, None].astype(np.float32)
         emb = (out[0] * mask).sum(1) / mask.sum(1).clip(min=1e-9)
         norms = np.linalg.norm(emb, axis=1, keepdims=True)
