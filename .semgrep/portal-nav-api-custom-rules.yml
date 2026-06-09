@@ -130,7 +130,6 @@ rules:
     paths:
       include:
         - handler.py
-        - core/
         - services/
         - routes/
     message: |

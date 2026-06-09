@@ -2,8 +2,15 @@
 PostgreSQL connection pool (psycopg2).
 Initialised once at Lambda cold start, reused across warm invocations.
 Runs idempotent schema migrations on first connect.
+
+SIGTERM handling: Lambda sends SIGTERM before SIGKILL when a function times out
+or is being shut down.  We register a handler and an atexit hook so the
+connection pool is closed cleanly rather than being abandoned, which would
+leave dangling connections on RDS until the idle timeout (default 10 min).
 """
+import atexit
 import logging
+import signal
 
 import psycopg2
 import psycopg2.pool
@@ -13,6 +20,30 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 _pool: psycopg2.pool.ThreadedConnectionPool | None = None
+
+
+def _close_pool(signum=None, frame=None) -> None:
+    """
+    Close every connection in the pool.
+
+    Called on SIGTERM and at process exit via atexit.  Idempotent — safe to
+    call multiple times.  Swallows all exceptions so it never prevents an
+    orderly shutdown.
+    """
+    global _pool
+    if _pool is not None:
+        try:
+            _pool.closeall()
+            logger.info("DB pool closed cleanly")
+        except Exception as exc:  # pragma: no cover
+            logger.warning("DB pool close error: %s", exc)
+        finally:
+            _pool = None
+
+
+# Register once at import time.  Both hooks are idempotent.
+signal.signal(signal.SIGTERM, _close_pool)
+atexit.register(_close_pool)
 
 
 def init_pool():
