@@ -28,15 +28,22 @@ def test_l201_rerank_returns_none_when_all_below_threshold(settings_override):
     from services.reranker import rerank
     import services.reranker as rer
     import numpy as np
+    from transformers import AutoTokenizer
 
-    # Mock ONNX to return very low scores
     original_session = rer._session
+    original_tokenizer = rer._tokenizer
     try:
+        # Mock both session AND tokenizer so the fallback branch is bypassed
+        mock_tokenizer = type("T", (), {
+            "items": lambda self: [("input_ids", np.zeros((1, 10), dtype=np.int64))],
+            "__call__": lambda self, *a, **kw: {"input_ids": np.zeros((1, 10), dtype=np.int64)},
+        })()
         mock_session = type("S", (), {
             "get_inputs": lambda self: [type("I", (), {"name": "input_ids"})()],
-            "run": lambda self, out, inp: [np.array([[[-10.0]]]),],
+            "run": lambda self, out, inp: [np.array([[-10.0]])],  # very low score
         })()
         rer._session = mock_session
+        rer._tokenizer = mock_tokenizer
 
         with settings_override(L2_THRESHOLD=0.5):
             result = rerank("test", _candidates(3))
@@ -44,6 +51,7 @@ def test_l201_rerank_returns_none_when_all_below_threshold(settings_override):
         assert result is None, f"Expected None for low-scoring candidates, got {result}"
     finally:
         rer._session = original_session
+        rer._tokenizer = original_tokenizer
 
 
 # ── L2-02: rerank returns None on empty list ─────────────────────────────────
