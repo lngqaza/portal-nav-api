@@ -10,8 +10,8 @@ RUN pip install --no-cache-dir \
     "torch==2.3.1" \
     "sentence-transformers==3.0.1" \
     "optimum[onnxruntime]==1.21.2" \
-    "onnxruntime==1.18.1" \
-    "transformers==4.42.4"
+    "onnxruntime==1.26.0" \
+    "transformers==4.57.6"
 
 RUN optimum-cli export onnx \
     --model sentence-transformers/all-MiniLM-L6-v2 \
@@ -25,6 +25,10 @@ RUN optimum-cli export onnx \
 
 # Stage 2: AWS Lambda Python 3.12 — official AWS base image
 FROM public.ecr.aws/lambda/python:3.12
+
+# Patch all OS packages to eliminate fixable CVEs in the base image.
+# dnf update pulls the latest security patches from Amazon Linux repos.
+RUN dnf update -y && dnf clean all
 
 # ONNX models (kept separate from Python packages)
 COPY --from=model-builder /onnx_models ${LAMBDA_TASK_ROOT}/onnx_models
