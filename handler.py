@@ -1,0 +1,87 @@
+"""
+portal-nav-api — AWS Lambda entry point.
+Routes: /query  /query/batch  /query/suggest  /health  /admin/*
+"""
+import json
+import logging
+import os
+
+logger = logging.getLogger()
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
+
+# Module-level init — runs once per cold start, reused on warm invocations
+from core.config import settings
+from core.db import init_pool
+from services.embedding import load_model
+from services.reranker import load_reranker
+
+load_model()
+load_reranker()
+init_pool()
+
+
+def lambda_handler(event, context):
+    path = event.get("rawPath", "/")
+    method = event.get("requestContext", {}).get("http", {}).get("method", "GET").upper()
+    headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
+
+    logger.info(json.dumps({"path": path, "method": method}))
+
+    try:
+        if path == "/health" and method == "GET":
+            from routes.health import handle_health
+            return handle_health()
+
+        if path in ("/query", "/query/") and method == "POST":
+            from core.auth import validate_api_key
+            from routes.query import handle_query
+            validate_api_key(headers)
+            return handle_query(_body(event))
+
+        if path in ("/query/batch", "/query/batch/") and method == "POST":
+            from core.auth import validate_api_key
+            from routes.query import handle_batch
+            validate_api_key(headers)
+            return handle_batch(_body(event))
+
+        if path in ("/query/suggest", "/query/suggest/") and method == "GET":
+            from routes.query import handle_suggest
+            q = (event.get("queryStringParameters") or {}).get("q", "")
+            return handle_suggest(q)
+
+        if path.startswith("/admin"):
+            from core.auth import validate_admin_token
+            from routes.admin import handle_admin
+            validate_admin_token(headers)
+            params = event.get("queryStringParameters") or {}
+            body = _body(event) if method in ("POST", "PUT", "PATCH") else {}
+            return handle_admin(path, method, body, params)
+
+        return _r(404, {"error": "Not found", "path": path})
+
+    except PermissionError as e:
+        return _r(401, {"error": str(e)})
+    except ValueError as e:
+        return _r(400, {"error": str(e)})
+    except Exception:
+        logger.exception("Unhandled error")
+        return _r(500, {"error": "Internal server error"})
+
+
+def _body(event):
+    body = event.get("body") or "{}"
+    if event.get("isBase64Encoded"):
+        import base64
+        body = base64.b64decode(body).decode()
+    try:
+        return json.loads(body)
+    except Exception:
+        return {}
+
+
+def _r(status, data):
+    return {
+        "statusCode": status,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(data),
+    }

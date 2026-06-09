@@ -1,4 +1,4 @@
-name: Deploy portal-nav-api
+name: Deploy portal-nav-api (Lambda + API Gateway)
 
 on:
   push:
@@ -8,7 +8,11 @@ on:
 env:
   AWS_REGION: eu-west-1
   ECR_REPO: 684756697968.dkr.ecr.eu-west-1.amazonaws.com/portal-nav-api
-  SERVICE_NAME: portal-nav-api
+  FUNCTION_NAME: portal-nav-api
+  API_NAME: portal-nav-api
+  ACCOUNT_ID: "684756697968"
+  VPC_SUBNETS: "subnet-00b028c69cbbd08ab,subnet-00a4a05f8f47b543f"
+  VPC_SGS: "sg-0421044ca2ce55b41"
 
 jobs:
   build:
@@ -28,11 +32,9 @@ jobs:
 
       - name: Create ECR repo if needed
         run: |
-          aws ecr describe-repositories --repository-names $SERVICE_NAME 2>/dev/null || \
-          aws ecr create-repository \
-            --repository-name $SERVICE_NAME \
-            --image-scanning-configuration scanOnPush=true \
-            --region $AWS_REGION
+          aws ecr describe-repositories --repository-names portal-nav-api 2>/dev/null || \
+          aws ecr create-repository --repository-name portal-nav-api \
+            --image-scanning-configuration scanOnPush=true
 
       - name: Build and push
         id: push
@@ -43,16 +45,12 @@ jobs:
           docker push $ECR_REPO:latest
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
 
-      - name: Prune old images (keep latest 5)
+      - name: Prune old images (keep 5)
         run: |
-          DIGESTS=$(aws ecr describe-images \
-            --repository-name $SERVICE_NAME \
-            --query 'sort_by(imageDetails,&imagePushedAt)[:-5].imageDigest' \
-            --output text)
-          for DIGEST in $DIGESTS; do
-            aws ecr batch-delete-image \
-              --repository-name $SERVICE_NAME \
-              --image-ids imageDigest=$DIGEST || true
+          DIGESTS=$(aws ecr describe-images --repository-name portal-nav-api \
+            --query 'sort_by(imageDetails,&imagePushedAt)[:-5].imageDigest' --output text)
+          for D in $DIGESTS; do
+            aws ecr batch-delete-image --repository-name portal-nav-api --image-ids imageDigest=$D || true
           done
 
   deploy:
@@ -65,80 +63,82 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-west-1
 
-      - name: Deploy to App Runner
+      - name: Ensure Lambda execution role exists
+        run: |
+          ROLE_ARN=$(aws iam get-role --role-name portal-nav-lambda-role \
+            --query 'Role.Arn' --output text 2>/dev/null || echo "")
+          if [ -z "$ROLE_ARN" ]; then
+            ROLE_ARN=$(aws iam create-role \
+              --role-name portal-nav-lambda-role \
+              --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' \
+              --query 'Role.Arn' --output text)
+            aws iam attach-role-policy --role-name portal-nav-lambda-role \
+              --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+            aws iam attach-role-policy --role-name portal-nav-lambda-role \
+              --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+            sleep 15
+          fi
+          echo "ROLE_ARN=$ROLE_ARN" >> $GITHUB_ENV
+
+      - name: Deploy Lambda
         env:
           IMAGE_URI: ${{ needs.build.outputs.image_uri }}
         run: |
-          SERVICE_ARN=$(aws apprunner list-services \
-            --query "ServiceSummaryList[?ServiceName=='$SERVICE_NAME'].ServiceArn" \
-            --output text)
+          ENV_VARS="Variables={DATABASE_URL=${{ secrets.NAV_DATABASE_URL }},API_KEYS=${{ secrets.NAV_API_KEYS }},ADMIN_TOKEN=${{ secrets.NAV_ADMIN_TOKEN }},SERVICE_VERSION=${{ github.sha }}}"
 
-          VPC_CONNECTOR_ARN="arn:aws:apprunner:eu-west-1:684756697968:vpcconnector/portal-nav-vpc-connector/1/759227adb4f2471a965bc4cc84886ce1"
+          EXISTS=$(aws lambda get-function --function-name $FUNCTION_NAME \
+            --query 'Configuration.FunctionArn' --output text 2>/dev/null || echo "")
 
-          if [ -z "$SERVICE_ARN" ]; then
-            echo "Creating new App Runner service..."
-            aws apprunner create-service \
-              --service-name $SERVICE_NAME \
-              --source-configuration "{
-                \"AuthenticationConfiguration\": {
-                  \"AccessRoleArn\": \"arn:aws:iam::684756697968:role/portal-nav-apprunner-ecr-role\"
-                },
-                \"ImageRepository\": {
-                  \"ImageIdentifier\": \"$IMAGE_URI\",
-                  \"ImageConfiguration\": {
-                    \"Port\": \"8000\",
-                    \"RuntimeEnvironmentVariables\": {
-                      \"DATABASE_URL\": \"${{ secrets.NAV_DATABASE_URL }}\",
-                      \"API_KEYS\": \"${{ secrets.NAV_API_KEYS }}\",
-                      \"ADMIN_TOKEN\": \"${{ secrets.NAV_ADMIN_TOKEN }}\"
-                    }
-                  },
-                  \"ImageRepositoryType\": \"ECR\"
-                },
-                \"AutoDeploymentsEnabled\": false
-              }" \
-              --network-configuration "{\"EgressConfiguration\":{\"EgressType\":\"VPC\",\"VpcConnectorArn\":\"$VPC_CONNECTOR_ARN\"}}" \
-              --instance-configuration "Cpu=0.25 vCPU,Memory=0.5 GB" \
-              --health-check-configuration "Protocol=HTTP,Path=/health,Interval=10,Timeout=5,HealthyThreshold=1,UnhealthyThreshold=3"
+          if [ -z "$EXISTS" ]; then
+            echo "Creating Lambda function..."
+            aws lambda create-function \
+              --function-name $FUNCTION_NAME \
+              --package-type Image \
+              --code ImageUri=$IMAGE_URI \
+              --role $ROLE_ARN \
+              --memory-size 1024 \
+              --timeout 30 \
+              --environment "$ENV_VARS" \
+              --vpc-config SubnetIds=$VPC_SUBNETS,SecurityGroupIds=$VPC_SGS
+            aws lambda wait function-active --function-name $FUNCTION_NAME
           else
-            echo "Updating existing App Runner service $SERVICE_ARN..."
-            aws apprunner update-service \
-              --service-arn $SERVICE_ARN \
-              --source-configuration "{
-                \"ImageRepository\": {
-                  \"ImageIdentifier\": \"$IMAGE_URI\",
-                  \"ImageConfiguration\": {
-                    \"Port\": \"8000\",
-                    \"RuntimeEnvironmentVariables\": {
-                      \"DATABASE_URL\": \"${{ secrets.NAV_DATABASE_URL }}\",
-                      \"API_KEYS\": \"${{ secrets.NAV_API_KEYS }}\",
-                      \"ADMIN_TOKEN\": \"${{ secrets.NAV_ADMIN_TOKEN }}\"
-                    }
-                  },
-                  \"ImageRepositoryType\": \"ECR\"
-                }
-              }"
+            echo "Updating Lambda..."
+            aws lambda update-function-code \
+              --function-name $FUNCTION_NAME \
+              --image-uri $IMAGE_URI
+            aws lambda wait function-updated --function-name $FUNCTION_NAME
+            aws lambda update-function-configuration \
+              --function-name $FUNCTION_NAME \
+              --environment "$ENV_VARS"
+            aws lambda wait function-updated --function-name $FUNCTION_NAME
           fi
 
-      - name: Wait for service RUNNING
+      - name: Create or verify API Gateway HTTP API
         run: |
-          for i in $(seq 1 60); do
-            SERVICE_ARN=$(aws apprunner list-services \
-              --query "ServiceSummaryList[?ServiceName=='$SERVICE_NAME'].ServiceArn" \
-              --output text)
-            STATUS=$(aws apprunner describe-service \
-              --service-arn $SERVICE_ARN \
-              --query "Service.Status" --output text)
-            echo "Attempt $i/60 — Status: $STATUS"
-            if [ "$STATUS" = "RUNNING" ]; then
-              URL=$(aws apprunner describe-service --service-arn $SERVICE_ARN --query "Service.ServiceUrl" --output text)
-              echo "Service live at: https://$URL"
-              exit 0
-            fi
-            if [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "UPDATE_FAILED" ]; then
-              echo "ERROR: Service deployment failed with status $STATUS"
-              exit 1
-            fi
-            sleep 15
-          done
-          echo "ERROR: Timed out waiting for RUNNING status" && exit 1
+          LAMBDA_ARN=$(aws lambda get-function --function-name $FUNCTION_NAME \
+            --query 'Configuration.FunctionArn' --output text)
+
+          API_ID=$(aws apigatewayv2 get-apis \
+            --query "Items[?Name=='$API_NAME'].ApiId" --output text)
+
+          if [ -z "$API_ID" ]; then
+            echo "Creating API Gateway HTTP API..."
+            API_ID=$(aws apigatewayv2 create-api \
+              --name $API_NAME \
+              --protocol-type HTTP \
+              --target $LAMBDA_ARN \
+              --query 'ApiId' --output text)
+            # Allow API Gateway to invoke Lambda
+            aws lambda add-permission \
+              --function-name $FUNCTION_NAME \
+              --statement-id apigateway-invoke \
+              --action lambda:InvokeFunction \
+              --principal apigateway.amazonaws.com \
+              --source-arn "arn:aws:execute-api:$AWS_REGION:$ACCOUNT_ID:${API_ID}/*/*"
+          fi
+
+          API_URL=$(aws apigatewayv2 get-api --api-id $API_ID --query 'ApiEndpoint' --output text)
+          echo "========================================"
+          echo "API live at: $API_URL"
+          echo "Health check: $API_URL/health"
+          echo "========================================"
