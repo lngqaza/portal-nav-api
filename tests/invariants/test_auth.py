@@ -2,6 +2,7 @@
 AUTH invariants — AUTH-01 through AUTH-05.
 These tests need no DB or model — they test routing and header parsing only.
 """
+import hmac
 import pytest
 
 
@@ -51,6 +52,62 @@ def test_auth03_admin_wrong_token_returns_401(invoke):
     """GET /admin/stats with wrong bearer token → 401."""
     status, _ = invoke("GET", "/admin/stats", admin_token="wrong-token")
     assert status == 401
+
+
+# ── AUTH-04 ──────────────────────────────────────────────────────────────────
+
+def test_auth04_api_key_validation_uses_compare_digest():
+    """
+    validate_api_key uses hmac.compare_digest — not string equality.
+
+    Timing attacks on == can reveal key length and matching prefix byte-by-byte.
+    hmac.compare_digest runs in constant time regardless of where bytes differ.
+    This test asserts the implementation, not just the observable behaviour.
+    """
+    import inspect
+    from core import auth
+    source = inspect.getsource(auth.validate_api_key)
+    assert "hmac.compare_digest" in source, (
+        "validate_api_key must use hmac.compare_digest — not == or 'in'"
+    )
+    # Also confirm the banned patterns are absent from the auth module source
+    full_source = inspect.getsource(auth)
+    # Direct token comparison must not appear — hmac.compare_digest replaces it
+    assert "token ==" not in full_source, "Timing-unsafe token == found in auth module"
+    assert "token !=" not in full_source, "Timing-unsafe token != found in auth module"
+
+
+def test_auth04_admin_token_validation_uses_compare_digest():
+    """validate_admin_token uses hmac.compare_digest — not string equality."""
+    import inspect
+    from core import auth
+    source = inspect.getsource(auth.validate_admin_token)
+    assert "hmac.compare_digest" in source, (
+        "validate_admin_token must use hmac.compare_digest — not == or !="
+    )
+
+
+def test_auth04_wrong_prefix_keys_all_rejected(invoke):
+    """
+    Keys that are correct-length prefix-matches of a valid key are rejected.
+
+    A timing-unsafe implementation that short-circuits on byte mismatch
+    returns faster for a prefix match than for a completely wrong key.
+    This test verifies functional correctness of the constant-time path
+    (timing itself cannot be asserted in a unit test, but the result can be).
+    """
+    from core.config import settings
+    if not settings.API_KEYS:
+        pytest.skip("No API_KEYS configured")
+
+    first_key = settings.API_KEYS[0]
+    if len(first_key) < 4:
+        pytest.skip("Key too short to test prefix rejection")
+
+    # A key that shares the first half of the valid key must be rejected
+    prefix_key = first_key[: len(first_key) // 2]
+    status, _ = invoke("POST", "/query", body={"query": "test"}, api_key=prefix_key)
+    assert status == 401, f"Prefix key '{prefix_key}' should be rejected (401), got {status}"
 
 
 # ── AUTH-05 ──────────────────────────────────────────────────────────────────
