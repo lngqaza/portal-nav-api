@@ -2,5 +2,5 @@ psycopg2-binary==2.9.9
 pgvector==0.3.2
 python-Levenshtein==0.25.1
 numpy==1.26.4
-onnxruntime==1.18.1
-transformers==4.42.4
+onnxruntime==1.26.0
+transformers==4.57.6
