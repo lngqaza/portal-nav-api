@@ -1,0 +1,231 @@
+name: AppSec — portal-nav-api
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Weekly full scan every Monday 02:00 UTC (includes DAST)
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+
+env:
+  PROJECT_NAME: portal-nav-api
+  LIVE_URL: https://3jz6sk8vt7.execute-api.eu-west-1.amazonaws.com
+
+permissions:
+  contents: read
+  security-events: write   # upload SARIF to GitHub Security tab
+  actions: read
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────
+  # SAST — CodeQL (Python) + Semgrep (Python + security-audit + custom rules)
+  # Gate: CRITICAL → fail. HIGH → warn.
+  # ────────────────────────────────────────────────────────────────────────
+  sast:
+    name: "SAST (CodeQL + Semgrep)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for Semgrep diff mode
+
+      # ── CodeQL ────────────────────────────────────────────────────────
+      - name: Init CodeQL (Python)
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
+          upload: true
+
+      # ── Semgrep ───────────────────────────────────────────────────────
+      - name: Semgrep scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >
+            p/python
+            p/security-audit
+            p/owasp-top-ten
+            .semgrep/portal-nav-api-custom-rules.yml
+          generateSarif: "1"
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}   # optional — works without token
+
+      - name: Upload Semgrep SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  # ────────────────────────────────────────────────────────────────────────
+  # SCA — OWASP Dependency-Check (Python) + pip-audit + npm audit
+  # Gate: CVSS ≥ 7 → fail.
+  # ────────────────────────────────────────────────────────────────────────
+  sca:
+    name: "SCA (OWASP-DC + pip-audit + npm audit)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── pip-audit (fast, inline) ──────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --severity high --output pip-audit.json --format json || true
+          pip-audit -r requirements.txt --severity high
+
+      # ── OWASP Dependency-Check (thorough NVD scan) ────────────────────
+      - name: OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: portal-nav-api
+          path: "."
+          format: SARIF
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+            --propertyfile appsec/owasp-dc.properties
+            --suppression appsec/owasp-dc-suppressions.xml
+
+      - name: Upload OWASP-DC SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/dependency-check-report.sarif
+          category: owasp-dependency-check
+
+      # ── npm audit (Wave 3 test deps) ──────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: npm audit (Wave 3)
+        working-directory: tests/wave3
+        run: |
+          npm ci
+          npm audit --audit-level=high
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Secrets — Gitleaks full history scan
+  # Gate: any secret found → fail immediately.
+  # ────────────────────────────────────────────────────────────────────────
+  secrets:
+    name: "Secrets (Gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks — full history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}   # optional — works without
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Container scan — Trivy on the ECR image (runs after build in main deploy)
+  # Here we scan the Dockerfile + local context for misconfiguration.
+  # ────────────────────────────────────────────────────────────────────────
+  container:
+    name: "Container (Trivy)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image for scanning (no push)
+        run: docker build -t portal-nav-api:scan .
+
+      - name: Trivy — image vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: portal-nav-api:scan
+          format: sarif
+          output: trivy-image.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+      - name: Trivy — Dockerfile misconfiguration
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-config.sarif
+          exit-code: "1"
+
+      - name: Upload Trivy config SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Licence — flag GPL/AGPL/SSPL in production dependencies
+  # ────────────────────────────────────────────────────────────────────────
+  licence:
+    name: "Licence compliance"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: pip-licenses (Python)
+        run: |
+          pip install pip-licenses
+          pip install -r requirements.txt
+          pip-licenses --order=license --fail-on="GPL;LGPL;AGPL;SSPL;EUPL" \
+            --packages $(pip-licenses --format=plain-vertical | awk '{print $1}' | tr '\n' ',')
+
+  # ────────────────────────────────────────────────────────────────────────
+  # DAST — OWASP ZAP baseline against live endpoint
+  # Schedule/manual only — never blocks PRs.
+  # ────────────────────────────────────────────────────────────────────────
+  dast:
+    name: "DAST (ZAP baseline)"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: ${{ env.LIVE_URL }}
+          rules_file_name: appsec/zap-rules.conf
+          cmd_options: "-I"   # -I = don't fail on warnings (advisory only)
+
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: report_html.html

@@ -1,0 +1,142 @@
+rules:
+
+  # ── Rule 1: Hardcoded API key or token in source ─────────────────────────
+  - id: portal-nav-hardcoded-credential
+    patterns:
+      - pattern-either:
+          - pattern: API_KEYS = ["..."]
+          - pattern: ADMIN_TOKEN = "..."
+          - pattern: api_key = "nav-..."
+    message: |
+      Hardcoded credential detected. All secrets must come from environment
+      variables or AWS Secrets Manager — never from source code literals.
+    languages: [python, javascript]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-798
+      owasp: A07:2021
+
+  # ── Rule 2: get_conn() called outside try/except in service layer ─────────
+  - id: portal-nav-db-uncaught-get-conn
+    patterns:
+      - pattern: |
+          with get_conn() as $CONN:
+              ...
+      - pattern-not-inside: |
+          try:
+              ...
+          except ...:
+              ...
+    paths:
+      include:
+        - routes/
+        - services/
+    message: |
+      get_conn() called without a surrounding try/except. If the DB pool is
+      not initialised (cold start, DB outage) this raises RuntimeError and
+      returns HTTP 500. Wrap in try/except and return a graceful degraded
+      response instead.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: reliability
+      cwe: CWE-755
+
+  # ── Rule 3: String equality on API key (timing-safe violation) ────────────
+  - id: portal-nav-key-timing-unsafe
+    patterns:
+      - pattern: $KEY == $OTHER
+      - pattern-either:
+          - pattern-inside: |
+              def validate_api_key(...):
+                  ...
+          - pattern-inside: |
+              def validate_admin_token(...):
+                  ...
+    message: |
+      String equality (==) on a credential is vulnerable to timing attacks.
+      Use hmac.compare_digest() or secrets.compare_digest() instead.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-208
+      owasp: A02:2021
+
+  # ── Rule 4: SQL string interpolation in cursor.execute() ─────────────────
+  - id: portal-nav-sql-injection
+    patterns:
+      - pattern: $CUR.execute($QUERY % ...)
+      - pattern: $CUR.execute($QUERY.format(...))
+      - pattern: $CUR.execute(f"...{$VAR}...")
+    message: |
+      Possible SQL injection via string interpolation in cursor.execute().
+      Always use parameterised queries: cur.execute("SELECT ...", (param,))
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021
+
+  # ── Rule 5: print() / console.log() in application code ──────────────────
+  - id: portal-nav-console-log
+    patterns:
+      - pattern: print(...)
+      - pattern-not-inside: |
+          if __name__ == "__main__":
+              ...
+    paths:
+      include:
+        - handler.py
+        - core/
+        - services/
+        - routes/
+    message: |
+      Use the structured logger (logging.getLogger(__name__)) — not print().
+      print() bypasses log level filtering and does not emit structured JSON.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: logging
+
+  # ── Rule 6: Stack trace / exception detail leaked to HTTP response ─────────
+  - id: portal-nav-stack-trace-leak
+    patterns:
+      - pattern-either:
+          - pattern: return _r(500, {"error": str($E), "traceback": ...})
+          - pattern: return _r(500, {"detail": traceback.format_exc()})
+          - pattern: json.dumps({"error": traceback.format_exc()})
+    message: |
+      Stack trace or exception detail exposed in HTTP response. Return a
+      generic "Internal server error" message to clients; log the detail
+      server-side only.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-209
+      owasp: A05:2021
+
+  # ── Rule 7: Direct use of os.environ in handler (bypass Settings) ─────────
+  - id: portal-nav-bypass-settings
+    patterns:
+      - pattern: os.environ[$KEY]
+      - pattern: os.environ.get($KEY, ...)
+      - pattern-not-inside: |
+          class Settings:
+              ...
+    paths:
+      include:
+        - handler.py
+        - core/
+        - services/
+        - routes/
+    message: |
+      Access env vars through core.config.settings — not os.environ directly.
+      This ensures the 12-factor config layer is the single source of truth.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: maintainability
