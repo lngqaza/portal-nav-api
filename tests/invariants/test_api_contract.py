@@ -1,6 +1,10 @@
 """
 API Contract invariants — API-01 through API-06.
 Tests lambda_handler end-to-end with real event structures.
+
+require_db=True is passed on every invoke() call that asserts status==200 from
+a DB-backed path.  Tests that only assert a specific error code (400, 404) do
+not need require_db — the handler validates input before touching the DB.
 """
 import pytest
 
@@ -11,7 +15,9 @@ REQUIRED_FIELDS = {"path", "label", "confidence", "layer", "response_ms", "candi
 
 def test_api01_response_has_all_required_fields(invoke, valid_api_key):
     """Every /query response contains all seven required fields."""
-    status, body = invoke("POST", "/query", body={"query": "test"}, api_key=valid_api_key)
+    status, body = invoke(
+        "POST", "/query", body={"query": "test"}, api_key=valid_api_key, require_db=True
+    )
     assert status == 200
     missing = REQUIRED_FIELDS - set(body.keys())
     assert not missing, f"Response missing fields: {missing}"
@@ -19,7 +25,10 @@ def test_api01_response_has_all_required_fields(invoke, valid_api_key):
 
 def test_api01_batch_each_result_has_required_fields(invoke, valid_api_key):
     """Every item in /query/batch response has all seven required fields."""
-    status, body = invoke("POST", "/query/batch", body={"queries": ["test1", "test2"]}, api_key=valid_api_key)
+    status, body = invoke(
+        "POST", "/query/batch", body={"queries": ["test1", "test2"]},
+        api_key=valid_api_key, require_db=True,
+    )
     assert status == 200
     assert isinstance(body, list)
     for i, item in enumerate(body):
@@ -28,6 +37,7 @@ def test_api01_batch_each_result_has_required_fields(invoke, valid_api_key):
 
 
 # ── API-02: batch > 20 returns 400 ───────────────────────────────────────────
+# Input validation fires before any DB call — no require_db needed.
 
 def test_api02_batch_over_20_returns_400(invoke, valid_api_key):
     """POST /query/batch with 21 queries returns HTTP 400."""
@@ -40,11 +50,11 @@ def test_api02_batch_over_20_returns_400(invoke, valid_api_key):
 
 
 def test_api02_batch_exactly_20_is_accepted(invoke, valid_api_key):
-    """POST /query/batch with exactly 20 queries is accepted."""
+    """POST /query/batch with exactly 20 queries is accepted (200, not 400/422)."""
     status, _ = invoke(
         "POST", "/query/batch",
         body={"queries": [f"query {i}" for i in range(20)]},
-        api_key=valid_api_key,
+        api_key=valid_api_key, require_db=True,
     )
     assert status == 200, f"Expected 200 for 20 queries, got {status}"
 
@@ -61,8 +71,6 @@ def test_api03_batch_preserves_order(invoke, valid_api_key, seeded_index, embedd
     )
     assert status == 200
     assert len(results) == len(queries), f"Expected {len(queries)} results, got {len(results)}"
-    # Each result must correspond to its query's intent (layer may vary but count matches)
-    # Order invariant: result[0] answers query[0], etc.
     assert len(results) == 3
 
 
@@ -88,7 +96,6 @@ def test_api05_confidence_max_4_decimal_places(invoke, valid_api_key, seeded_ind
     status, body = invoke("POST", "/query", body={"query": "submit a claim"}, api_key=valid_api_key)
     assert status == 200
     conf = body.get("confidence", 0.0)
-    # Check decimal places
     conf_str = str(conf)
     if "." in conf_str:
         decimals = len(conf_str.split(".")[1])
@@ -99,7 +106,9 @@ def test_api05_confidence_max_4_decimal_places(invoke, valid_api_key, seeded_ind
 
 def test_api06_response_ms_non_negative_int(invoke, valid_api_key):
     """response_ms is always a non-negative integer."""
-    status, body = invoke("POST", "/query", body={"query": "test"}, api_key=valid_api_key)
+    status, body = invoke(
+        "POST", "/query", body={"query": "test"}, api_key=valid_api_key, require_db=True
+    )
     assert status == 200
     ms = body.get("response_ms")
     assert isinstance(ms, int), f"response_ms is {type(ms).__name__}, expected int"
@@ -114,7 +123,8 @@ def test_unknown_route_returns_404(invoke, valid_api_key):
     assert status == 404
 
 
-# ── Empty query returns 400 ──────────────────────────────────────────────────
+# ── Empty / missing query field returns 400 ──────────────────────────────────
+# Validation is pre-DB — no require_db needed.
 
 def test_empty_query_returns_400(invoke, valid_api_key):
     """POST /query with empty query string returns HTTP 400."""

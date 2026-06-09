@@ -43,7 +43,7 @@ def test_route02_layer_always_valid(query, clean_db):
 
 # ── ROUTE-03: L1 not called when L0 hits ──────────────────────────────────────
 
-def test_route03_l1_not_called_on_l0_hit(clean_db):
+def test_route03_l1_not_called_on_l0_hit():
     """When L0 returns a result, services.embedding.search is never called."""
     from services.query_router import route_query
     mock_result = HotPathResult(path="/claims/submit", label="Submit Claim", confidence=0.9, hit_count=10)
@@ -58,7 +58,7 @@ def test_route03_l1_not_called_on_l0_hit(clean_db):
 
 # ── ROUTE-04: L2 not called when L1 confidence ≥ threshold ────────────────────
 
-def test_route04_l2_not_called_on_l1_confident_hit(clean_db, settings_override):
+def test_route04_l2_not_called_on_l1_confident_hit(settings_override):
     from services.query_router import route_query
     candidates = [EmbeddingResult(path="/p", label="P", description="", score=0.9)]
 
@@ -74,7 +74,7 @@ def test_route04_l2_not_called_on_l1_confident_hit(clean_db, settings_override):
 
 # ── ROUTE-05: L2 not called when L1 returns zero candidates ──────────────────
 
-def test_route05_l2_not_called_when_no_l1_candidates(clean_db):
+def test_route05_l2_not_called_when_no_l1_candidates():
     from services.query_router import route_query
 
     with patch("services.query_router.hp.lookup", return_value=None), \
@@ -88,7 +88,7 @@ def test_route05_l2_not_called_when_no_l1_candidates(clean_db):
 
 # ── ROUTE-06: MISS has path=None and confidence=0.0 ──────────────────────────
 
-def test_route06_miss_has_null_path_zero_confidence(clean_db):
+def test_route06_miss_has_null_path_zero_confidence():
     from services.query_router import route_query
 
     with patch("services.query_router.hp.lookup", return_value=None), \
@@ -102,7 +102,7 @@ def test_route06_miss_has_null_path_zero_confidence(clean_db):
 
 # ── ROUTE-07: non-MISS has non-empty path and label ──────────────────────────
 
-def test_route07_non_miss_has_path_and_label(clean_db, settings_override):
+def test_route07_non_miss_has_path_and_label(settings_override):
     from services.query_router import route_query
     candidates = [EmbeddingResult(path="/x", label="X Label", description="", score=0.8)]
 

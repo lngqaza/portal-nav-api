@@ -39,7 +39,7 @@ def test_l102_encode_returns_384_dimensions(embedding_model_loaded):
 
 # ── L1-03: search returns empty list when model absent ───────────────────────
 
-def test_l103_search_returns_empty_when_model_absent(clean_db):
+def test_l103_search_returns_empty_when_model_absent():
     """search() returns [] — never raises — when embedding model is not loaded."""
     import services.embedding as emb
     original_session = emb._session

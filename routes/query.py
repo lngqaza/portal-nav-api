@@ -24,19 +24,28 @@ def handle_batch(body: dict):
 
 
 def handle_suggest(q: str):
+    """
+    Returns label-prefix suggestions from nav_index.
+    Degrades gracefully to [] when DB is unavailable — suggest must never
+    return 5xx, matching the AUTH-05 invariant that it needs no auth and
+    always responds 200.
+    """
+    import logging
     from core.db import get_conn
-    # Search both nav_index labels and hot_path labels
     results = []
     if q:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT path, label FROM nav_index
-                    WHERE lower(label) LIKE %s OR lower(description) LIKE %s
-                    ORDER BY label LIMIT 5
-                    """,
-                    (f"%{q.lower()}%", f"%{q.lower()}%"),
-                )
-                results = [{"path": r[0], "label": r[1]} for r in cur.fetchall()]
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT path, label FROM nav_index
+                        WHERE lower(label) LIKE %s OR lower(description) LIKE %s
+                        ORDER BY label LIMIT 5
+                        """,
+                        (f"%{q.lower()}%", f"%{q.lower()}%"),
+                    )
+                    results = [{"path": r[0], "label": r[1]} for r in cur.fetchall()]
+        except Exception as e:
+            logging.getLogger(__name__).warning("suggest DB unavailable, returning []: %s", e)
     return _r(200, results)

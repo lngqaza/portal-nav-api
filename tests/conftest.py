@@ -50,7 +50,10 @@ def db_url():
 
 @pytest.fixture(scope="session")
 def db_reachable(db_url):
-    """Session-scoped check: skip all DB tests if the host is unreachable."""
+    """
+    Session-scoped TCP reachability check against the RDS host.
+    Returns True/False — never skips by itself; callers decide skip behaviour.
+    """
     import socket
     host = db_url.split("@")[-1].split(":")[0].split("/")[0]
     s = socket.socket()
@@ -63,11 +66,18 @@ def db_reachable(db_url):
         return False
 
 
+# Message reused by every RDS-dependent fixture so skip reasons are uniform.
+_RDS_SKIP = (
+    "integration-pending[rds]: RDS is in VPC and port 5432 is blocked from the "
+    "dev network. These tests run in GitHub Actions (Lambda VPC access)."
+)
+
+
 @pytest.fixture(scope="function")
 def raw_conn(db_url, db_reachable):
     """Raw psycopg2 connection — rolled back after each test."""
     if not db_reachable:
-        pytest.skip("RDS port 5432 unreachable from this network — run in CI or with VPN")
+        pytest.skip(_RDS_SKIP)
     conn = psycopg2.connect(dsn=db_url)
     conn.autocommit = False
     yield conn
@@ -224,22 +234,25 @@ def lambda_event_factory():
 def invoke(lambda_event_factory, db_reachable):
     """
     Invoke lambda_handler and return (status_code, parsed_body).
-    Skips if DB is required and unreachable (detects 500 from uninitialised pool).
+
+    Pass require_db=True on calls that assert a 200 response from a DB-backed
+    endpoint — those tests will be explicitly skipped with an integration-pending
+    reason rather than failing with a 500 assertion error.
+
+    Tests that only check *which HTTP status* is returned (e.g. assert status==401,
+    assert status==400) do NOT need require_db=True — they remain runnable without
+    any DB connection.
 
     Usage:
         status, body = invoke("POST", "/query", body={"query": "..."}, api_key="k")
+        status, body = invoke("POST", "/query", body={"query": "..."}, api_key="k", require_db=True)
     """
-    import handler as h_module  # Import after sys.path is set
-
-    # Re-init pool now that DB URL is set in env
-    if db_reachable:
-        from core.db import init_pool
-        init_pool()
+    import handler as h_module  # Import triggers module-level init_pool() / load_model()
 
     def _invoke(method: str, path: str, body=None, api_key=None, admin_token=None,
                 params=None, require_db: bool = False):
         if require_db and not db_reachable:
-            pytest.skip("RDS unreachable from this network")
+            pytest.skip(_RDS_SKIP)
 
         headers = {}
         if api_key:
@@ -255,10 +268,6 @@ def invoke(lambda_event_factory, db_reachable):
             parsed = json.loads(raw_body)
         except Exception:
             parsed = raw_body
-
-        # Auto-skip if DB pool failure causes unexpected 500 on a non-auth path
-        if status == 500 and not db_reachable and path not in ("/health",):
-            pytest.skip(f"500 on {path} — DB pool not initialised (RDS unreachable)")
 
         return status, parsed
 
@@ -277,7 +286,11 @@ def embedding_model_loaded():
         load_model()
     from services.embedding import _session as s
     if s is None:
-        pytest.skip("Embedding ONNX model not available — skipping embedding tests")
+        pytest.skip(
+            "integration-pending[onnx]: all-MiniLM-L6-v2 ONNX model is baked into "
+            "the Lambda container at /var/task/onnx_models/ — not present on dev machine. "
+            "Runs in GitHub Actions after Docker build."
+        )
     return s
 
 
@@ -289,7 +302,11 @@ def reranker_model_loaded():
         load_reranker()
     from services.reranker import _session as s
     if s is None:
-        pytest.skip("Reranker ONNX model not available — skipping reranker tests")
+        pytest.skip(
+            "integration-pending[onnx]: cross-encoder/ms-marco-MiniLM-L-6-v2 ONNX model "
+            "is baked into the Lambda container — not present on dev machine. "
+            "Runs in GitHub Actions after Docker build."
+        )
     return s
 
 
