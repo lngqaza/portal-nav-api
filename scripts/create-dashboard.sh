@@ -10,7 +10,7 @@ set -euo pipefail
 REGION="eu-west-1"
 FUNCTION="portal-nav-api"
 API_ID="3jz6sk8vt7"
-DASHBOARD_NAME="portal-nav-api"
+DASHBOARD_NAME="portal_nav_api"
 
 BODY=$(cat <<DASHBOARD
 {
