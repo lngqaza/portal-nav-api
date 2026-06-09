@@ -38,7 +38,7 @@ jobs:
         id: push
         run: |
           IMAGE_URI=$ECR_REPO:${{ github.sha }}
-          docker build -t $IMAGE_URI -t $ECR_REPO:latest .
+          docker build --no-cache -t $IMAGE_URI -t $ECR_REPO:latest .
           docker push $IMAGE_URI
           docker push $ECR_REPO:latest
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
