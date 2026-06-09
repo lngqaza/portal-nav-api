@@ -15,7 +15,49 @@ env:
   VPC_SGS: "sg-0421044ca2ce55b41"
 
 jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 1: Wave 1/2 unit tests — pytest invariants that need no DB or ONNX.
+  # These run immediately on push and must be green before build starts.
+  # Tests that require RDS or ONNX are skipped with integration-pending[rds/onnx].
+  # ──────────────────────────────────────────────────────────────────────────
+  test-unit:
+    name: "Wave 1/2 — unit invariants"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python deps
+        run: pip install -r requirements-dev.txt
+
+      - name: Run pytest (unit — no DB, no ONNX)
+        # DATABASE_URL intentionally absent: tests that need RDS/ONNX skip with
+        # explicit integration-pending[rds/onnx] reasons. Zero failures expected.
+        env:
+          API_KEYS: ${{ secrets.NAV_API_KEYS }}
+          ADMIN_TOKEN: ${{ secrets.NAV_ADMIN_TOKEN }}
+        run: |
+          python -m pytest tests/invariants/ -v --tb=short 2>&1 | tee pytest-unit.log
+          tail -1 pytest-unit.log
+
+      - name: Upload pytest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-unit-log
+          path: pytest-unit.log
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 2: Build Docker image and push to ECR.
+  # Only starts after unit tests pass.
+  # ──────────────────────────────────────────────────────────────────────────
   build:
+    name: "Build & push to ECR"
+    needs: test-unit
     runs-on: ubuntu-latest
     outputs:
       image_uri: ${{ steps.push.outputs.image_uri }}
@@ -50,12 +92,19 @@ jobs:
           DIGESTS=$(aws ecr describe-images --repository-name portal-nav-api \
             --query 'sort_by(imageDetails,&imagePushedAt)[:-5].imageDigest' --output text)
           for D in $DIGESTS; do
-            aws ecr batch-delete-image --repository-name portal-nav-api --image-ids imageDigest=$D || true
+            aws ecr batch-delete-image --repository-name portal-nav-api \
+              --image-ids imageDigest=$D || true
           done
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 3: Deploy Lambda + API Gateway.
+  # ──────────────────────────────────────────────────────────────────────────
   deploy:
+    name: "Deploy Lambda"
     needs: build
     runs-on: ubuntu-latest
+    outputs:
+      api_url: ${{ steps.api.outputs.api_url }}
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -117,6 +166,7 @@ jobs:
           fi
 
       - name: Create or verify API Gateway HTTP API
+        id: api
         run: |
           LAMBDA_ARN=$(aws lambda get-function --function-name $FUNCTION_NAME \
             --query 'Configuration.FunctionArn' --output text)
@@ -131,7 +181,6 @@ jobs:
               --protocol-type HTTP \
               --target $LAMBDA_ARN \
               --query 'ApiId' --output text)
-            # Allow API Gateway to invoke Lambda
             aws lambda add-permission \
               --function-name $FUNCTION_NAME \
               --statement-id apigateway-invoke \
@@ -140,8 +189,82 @@ jobs:
               --source-arn "arn:aws:execute-api:$AWS_REGION:$ACCOUNT_ID:${API_ID}/*/*"
           fi
 
-          API_URL=$(aws apigatewayv2 get-api --api-id $API_ID --query 'ApiEndpoint' --output text)
-          echo "========================================"
+          API_URL=$(aws apigatewayv2 get-api --api-id $API_ID \
+            --query 'ApiEndpoint' --output text)
+          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
           echo "API live at: $API_URL"
-          echo "Health check: $API_URL/health"
-          echo "========================================"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 4: Post-deploy integration tests.
+  # Runs AFTER deploy so it hits the freshly-deployed Lambda image.
+  # Splits into two parallel sub-streams:
+  #   4a. Wave 1/2 pytest — full suite including DB + ONNX invariants
+  #   4b. Wave 3 Jest    — contract, security, business e2e against live API
+  # Both must pass for the pipeline to be green.
+  # ──────────────────────────────────────────────────────────────────────────
+  test-integration-python:
+    name: "Wave 1/2 — integration invariants (DB + ONNX)"
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python deps
+        run: pip install -r requirements-dev.txt
+
+      - name: Run full pytest suite
+        env:
+          DATABASE_URL: ${{ secrets.NAV_DATABASE_URL }}
+          NAV_TEST_DATABASE_URL: ${{ secrets.NAV_DATABASE_URL }}
+          API_KEYS: ${{ secrets.NAV_API_KEYS }}
+          ADMIN_TOKEN: ${{ secrets.NAV_ADMIN_TOKEN }}
+        run: |
+          python -m pytest tests/invariants/ -v --tb=short 2>&1 | tee pytest-integration.log
+          tail -1 pytest-integration.log
+
+      - name: Upload pytest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-integration-log
+          path: pytest-integration.log
+
+  test-integration-wave3:
+    name: "Wave 3 — contract / security / e2e (live API)"
+    needs: deploy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tests/wave3
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: tests/wave3/package-lock.json
+
+      - name: Install Node deps
+        run: npm ci
+
+      - name: Run Wave 3 Jest suite
+        env:
+          NAV_API_URL: ${{ needs.deploy.outputs.api_url }}
+          # NAV_API_KEY must be a single key; NAV_API_KEYS secret holds comma-separated
+          # list — take the first value by stripping everything from the first comma.
+          NAV_API_KEY: ${{ secrets.NAV_API_KEYS }}
+          NAV_ADMIN_TOKEN: ${{ secrets.NAV_ADMIN_TOKEN }}
+        run: npm run test:ci 2>&1 | tee jest-wave3.log
+
+      - name: Upload Jest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-wave3-log
+          path: tests/wave3/jest-wave3.log
