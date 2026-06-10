@@ -23,6 +23,7 @@
  *   data-base-path        optional  Prepended to relative paths (default: "")
  *   data-hotkey           optional  Keyboard shortcut to open (default: "k")
  *   data-placeholder      optional  Input placeholder text
+ *   data-cache-version    optional  Bump this string to wipe stale localStorage on next load
  */
 
 (function (global) {
@@ -45,18 +46,34 @@
       return scripts[scripts.length - 1];
     })();
 
+  // Merge order: data attributes (highest) > window.PORTAL_NAV_CONFIG > defaults
+  var _rc = global.PORTAL_NAV_CONFIG || {};
   var cfg = {
-    apiUrl:      (scriptEl.getAttribute('data-api-url')     || '').replace(/\/$/, ''),
-    apiKey:      scriptEl.getAttribute('data-api-key')      || '',
-    threshold:   parseFloat(scriptEl.getAttribute('data-threshold') || '0.85'),
-    basePath:    (scriptEl.getAttribute('data-base-path')   || '').replace(/\/$/, ''),
-    hotkey:      scriptEl.getAttribute('data-hotkey')       || 'k',
-    placeholder: scriptEl.getAttribute('data-placeholder')  || 'Where do you want to go? (e.g. "submit a claim")',
+    apiUrl:       (scriptEl.getAttribute('data-api-url')      || _rc.apiUrl      || '').replace(/\/$/, ''),
+    apiKey:       (scriptEl.getAttribute('data-api-key')      || _rc.apiKey      || ''),
+    threshold:    parseFloat(scriptEl.getAttribute('data-threshold')     || _rc.threshold     || '0.85'),
+    basePath:     (scriptEl.getAttribute('data-base-path')    || _rc.basePath    || '').replace(/\/$/, ''),
+    hotkey:       (scriptEl.getAttribute('data-hotkey')       || _rc.hotkey      || 'k'),
+    placeholder:  (scriptEl.getAttribute('data-placeholder')  || _rc.placeholder || 'Where do you want to go? (e.g. "submit a claim")'),
+    cacheVersion: (scriptEl.getAttribute('data-cache-version')|| String(_rc.cacheVersion || '1')),
   };
 
   if (!cfg.apiUrl || !cfg.apiKey) {
-    console.warn('[NavWidget] data-api-url and data-api-key are required. Widget disabled.');
+    console.warn('[NavWidget] API URL and key required (data-api-url/data-api-key or window.PORTAL_NAV_CONFIG). Widget disabled.');
     return;
+  }
+
+  // ── Cache version guard ───────────────────────────────────────────────────────
+  // When data-cache-version changes (e.g. after a portal path restructure), wipe
+  // all stale learned paths and recent history so old routes don't reappear.
+  var VERSION_KEY = 'nav_cache_version';
+  var storedVersion = lsGet(VERSION_KEY);
+  if (storedVersion !== cfg.cacheVersion) {
+    try {
+      localStorage.removeItem(LEARN_KEY);
+      localStorage.removeItem(RECENT_KEY);
+      lsSet(VERSION_KEY, cfg.cacheVersion);
+    } catch (e) { /* storage unavailable — ignore */ }
   }
 
   // ── LocalStorage helpers ─────────────────────────────────────────────────────

@@ -1,0 +1,7 @@
+# .gitleaksignore — allowlist for intentional demo/test credentials
+# Format: <commit-sha>:<finding-fingerprint>  OR  path-based glob via .gitleaks.toml
+
+# mock-portal/assets/portal-config.js contains a demo API key for the NovaSure
+# test portal. This is a portal-nav API key (not a cloud credential) used only
+# in the public S3 demo site. It grants read-only navigation query access only.
+mock-portal/assets/portal-config.js
