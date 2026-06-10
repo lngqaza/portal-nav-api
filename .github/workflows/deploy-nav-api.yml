@@ -261,6 +261,39 @@ jobs:
             fi
           fi
 
+          # ── Throttle (idempotent) ──────────────────────────────────────────
+          # 50 req/s steady-state, 100 burst. Prevents a rogue caller from
+          # exhausting Lambda concurrency and causing cold starts for real users.
+          aws apigatewayv2 update-stage \
+            --api-id $API_ID \
+            --stage-name '$default' \
+            --default-route-settings '{"ThrottlingBurstLimit":100,"ThrottlingRateLimit":50}'
+
+          # ── Alarm SNS wiring (idempotent) ─────────────────────────────────────
+          # Re-apply on every deploy so alarms survive manual edits.
+          SNS_ARN="arn:aws:sns:$AWS_REGION:$ACCOUNT_ID:portal-nav-api-alerts"
+          for ALARM in portal-nav-api-error-rate portal-nav-api-p95-duration portal-nav-api-throttles portal-nav-api-5xx; do
+            CURRENT=$(aws cloudwatch describe-alarms --alarm-names "$ALARM" --region $AWS_REGION \
+              --query 'MetricAlarms[0].AlarmActions' --output text 2>/dev/null || echo "")
+            if [ "$CURRENT" != "$SNS_ARN" ]; then
+              CONFIG=$(aws cloudwatch describe-alarms --alarm-names "$ALARM" --region $AWS_REGION \
+                --query 'MetricAlarms[0]' --output json)
+              # Update alarm-actions in-place; all other fields unchanged
+              aws cloudwatch put-metric-alarm \
+                --cli-input-json "$(echo $CONFIG | python3 -c "
+import json,sys
+a=json.load(sys.stdin)
+a['AlarmActions']=['$SNS_ARN']
+a['OKActions']=['$SNS_ARN']
+# Remove read-only fields
+for k in ['AlarmArn','AlarmConfigurationUpdatedTimestamp','StateValue','StateReason',
+          'StateReasonData','StateUpdatedTimestamp','StateTransitionedTimestamp']:
+  a.pop(k,None)
+print(json.dumps(a))
+")" && echo "$ALARM: SNS wired"
+            fi
+          done
+
           API_URL=$(aws apigatewayv2 get-api --api-id $API_ID \
             --query 'ApiEndpoint' --output text)
           echo "api_url=$API_URL" >> $GITHUB_OUTPUT
