@@ -159,6 +159,11 @@
     '#nav-input::placeholder{color:#bbb}',
     '#nav-spinner{width:18px;height:18px;border:2px solid #ddd;border-top-color:#555;border-radius:50%;animation:nav-spin .6s linear infinite;flex-shrink:0;display:none}',
     '#nav-spinner.nav-visible{display:block}',
+    '#nav-mic{border:none;background:transparent;cursor:pointer;color:#888;padding:4px;border-radius:6px;display:flex;align-items:center;flex-shrink:0}',
+    '#nav-mic:hover{background:#f0f0f0;color:#333}',
+    '#nav-mic.nav-listening{color:#d33;animation:nav-pulse 1.2s ease-in-out infinite}',
+    '#nav-mic.nav-unsupported{display:none}',
+    '@keyframes nav-pulse{0%,100%{opacity:1}50%{opacity:.35}}',
     '@keyframes nav-spin{to{transform:rotate(360deg)}}',
     '#nav-results{max-height:340px;overflow-y:auto}',
     '.nav-result{display:flex;align-items:center;padding:12px 18px;cursor:pointer;gap:12px;border-bottom:1px solid #f5f5f5;transition:background .1s}',
@@ -190,6 +195,9 @@
     '  <div id="nav-input-wrap">',
     '    <svg id="nav-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>',
     '    <input id="nav-input" type="text" autocomplete="off" spellcheck="false" />',
+    '    <button id="nav-mic" type="button" title="Search by voice" aria-label="Search by voice">',
+    '      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>',
+    '    </button>',
     '    <div id="nav-spinner"></div>',
     '  </div>',
     '  <div id="nav-results"></div>',
@@ -497,6 +505,7 @@
     overlay.classList.add('nav-hidden');
     clearTimeout(debounceTimer);
     spinner.classList.remove('nav-visible');
+    stopVoice();
     input.blur();
   }
 
@@ -587,6 +596,65 @@
       if (currentItems[activeIndex]) navigate(currentItems[activeIndex]);
     }
   });
+
+  // ── Voice navigation — browser Web Speech API, zero cost ────────────────────
+  // Spoken queries land in the input and flow through the exact same NLU
+  // pipeline as typed ones. Button hides itself where unsupported (Firefox).
+
+  var micBtn = document.getElementById('nav-mic');
+  var SpeechRec = global.SpeechRecognition || global.webkitSpeechRecognition;
+  var recognizer = null;
+  var listening = false;
+
+  if (!SpeechRec) {
+    micBtn.classList.add('nav-unsupported');
+  } else {
+    micBtn.addEventListener('click', function () {
+      listening ? stopVoice() : startVoice();
+    });
+  }
+
+  function startVoice() {
+    recognizer = new SpeechRec();
+    recognizer.lang = scriptEl.getAttribute('data-voice-lang') || 'en-ZA';
+    recognizer.interimResults = true;
+    recognizer.continuous = false;
+
+    recognizer.onstart = function () {
+      listening = true;
+      micBtn.classList.add('nav-listening');
+      showStatus('🎤', 'Listening… speak your question.');
+    };
+    recognizer.onresult = function (e) {
+      var transcript = '';
+      for (var i = 0; i < e.results.length; i++) {
+        transcript += e.results[i][0].transcript;
+      }
+      input.value = transcript;
+      // Final result → run it through the normal search pipeline
+      if (e.results[e.results.length - 1].isFinal) {
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    };
+    recognizer.onerror = function (e) {
+      stopVoice();
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        showStatus('🎤', '<strong>Microphone access blocked.</strong><br>Allow microphone access in your browser to search by voice.');
+      } else if (e.error !== 'aborted') {
+        showStatus('🎤', '<strong>Could not hear you.</strong><br>Please try again, or type your question.');
+      }
+    };
+    recognizer.onend = function () { stopVoice(); };
+
+    try { recognizer.start(); }
+    catch (err) { stopVoice(); }
+  }
+
+  function stopVoice() {
+    listening = false;
+    micBtn.classList.remove('nav-listening');
+    if (recognizer) { try { recognizer.stop(); } catch (e) {} recognizer = null; }
+  }
 
   // Close on overlay click (outside palette)
   overlay.addEventListener('mousedown', function (e) {
