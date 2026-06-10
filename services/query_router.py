@@ -1,4 +1,4 @@
-"""3-layer navigation cascade: L0 hot-path → L1 embeddings → L2 re-ranker."""
+"""Navigation cascade: intent NLU → L0 hot-path → L1 embeddings → L2 re-ranker → L3 keywords → L4 weak candidates."""
 import logging
 import time
 from typing import Optional
@@ -8,6 +8,7 @@ from core.db import get_conn
 from models.navigation import NavigationResult
 from services import hot_path as hp
 from services import embedding as emb
+from services import intent
 from services import reranker as rer
 
 logger = logging.getLogger(__name__)
@@ -16,15 +17,24 @@ logger = logging.getLogger(__name__)
 def route_query(query: str) -> NavigationResult:
     start = time.monotonic()
 
-    # L0 — hot path registry (~1ms)
+    # NLU preprocessing — reduce conversational questions to their intent
+    # core so every layer matches meaning, not phrasing:
+    # "where do I log a claim?" -> "log a claim"
+    core = intent.intent_core(query)
+
+    # L0 — hot path registry (~1ms). Try the raw query first (aliases may be
+    # full phrases), then the intent core if stripping changed anything.
     r0 = hp.lookup(query)
+    if not r0 and core != query.lower().strip():
+        r0 = hp.lookup(core)
     if r0:
         ms = _ms(start)
         _log(query, r0.path, "L0", r0.confidence, ms)
         return NavigationResult(r0.path, r0.label, r0.confidence, "L0", ms)
 
-    # L1 — semantic embedding search (~8-50ms)
-    candidates = emb.search(query, top_k=5)
+    # L1 — semantic embedding search (~8-50ms) on the intent core: question
+    # scaffolding drags the vector away from the page descriptions.
+    candidates = emb.search(core, top_k=5)
     if candidates and candidates[0].score >= settings.L1_THRESHOLD:
         top = candidates[0]
         ms = _ms(start)
@@ -36,23 +46,37 @@ def route_query(query: str) -> NavigationResult:
 
     # L2 — cross-encoder re-ranker (~180ms, only when L1 has candidates but low confidence)
     if candidates:
-        best = rer.rerank(query, candidates)
+        best = rer.rerank(core, candidates)
         if best:
             ms = _ms(start)
             _log(query, best.path, "L2", best.score, ms)
             return NavigationResult(best.path, best.label, best.score, "L2", ms)
 
-    # L3 — substring fallback against nav_index. Catches partial words like
-    # "dash" that embed too far from "Dashboard" to clear L1/L2 thresholds.
-    # Confidence is fixed below the auto-navigate threshold so the client
-    # always presents these as a pick-list, never a silent redirect.
-    like_hits = _substring_fallback(query)
+    # L3 — keyword fallback against nav_index. Catches partial words ("dash")
+    # and intent vocabulary the embeddings missed: the core is tokenised,
+    # expanded through the domain synonym map ("log" -> "submit"), and pages
+    # are ranked by token coverage. Confidence is fixed below the
+    # auto-navigate threshold so the client always presents these as a
+    # pick-list, never a silent redirect.
+    like_hits = _keyword_fallback(query, core)
     if like_hits:
         ms = _ms(start)
         _log(query, like_hits[0]["path"], "L3", 0.5, ms)
         return NavigationResult(
             like_hits[0]["path"], like_hits[0]["label"], 0.5, "L3", ms,
             candidates=[{"path": h["path"], "label": h["label"], "score": 0.5} for h in like_hits],
+        )
+
+    # L4 — last resort: if L1 produced *any* candidates, surface the top 3 as
+    # low-confidence suggestions instead of a dead-end MISS. A weak guess the
+    # user can confirm beats "no match" for conversational queries.
+    if candidates:
+        top = candidates[0]
+        ms = _ms(start)
+        _log(query, top.path, "L4", top.score, ms)
+        return NavigationResult(
+            top.path, top.label, min(top.score, 0.5), "L4", ms,
+            candidates=[{"path": c.path, "label": c.label, "score": round(min(c.score, 0.5), 4)} for c in candidates[:3]],
         )
 
     # MISS
@@ -62,26 +86,51 @@ def route_query(query: str) -> NavigationResult:
     return NavigationResult(None, None, 0.0, "MISS", ms, suggestion="No match found")
 
 
-def _substring_fallback(query: str) -> list:
-    """Case-insensitive LIKE match on nav_index label/description.
+def _keyword_fallback(query: str, core: str) -> list:
+    """Keyword match on nav_index label/description/tags.
 
-    Returns up to 5 {path,label} dicts; [] on no match or DB failure —
-    a fallback layer must never turn a MISS into a 5xx.
+    Terms = whole core as a substring (handles partial words like "dash")
+    plus synonym-expanded tokens. Pages are ranked by term coverage with
+    label hits weighing double. Returns up to 5 {path,label} dicts; [] on
+    no match or DB failure — a fallback layer must never turn a MISS into
+    a 5xx.
     """
+    terms = []
+    whole = core.strip()
+    if whole:
+        terms.append(whole)
+    for t in intent.expanded_tokens(core):
+        if t not in terms:
+            terms.append(t)
+    if not terms:
+        return []
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT path, label FROM nav_index
-                    WHERE lower(label) LIKE %s OR lower(description) LIKE %s
-                    ORDER BY label LIMIT 5
-                    """,
-                    (f"%{query.lower()}%", f"%{query.lower()}%"),
+                conditions = " OR ".join(
+                    ["(lower(label) LIKE %s OR lower(coalesce(description,'')) LIKE %s"
+                     " OR lower(coalesce(array_to_string(tags,' '),'')) LIKE %s)"] * len(terms)
                 )
-                return [{"path": r[0], "label": r[1]} for r in cur.fetchall()]
+                params = []
+                for t in terms:
+                    params += [f"%{t}%"] * 3
+                cur.execute(
+                    f"""
+                    SELECT path, label, lower(label),
+                           lower(coalesce(description,'') || ' ' || coalesce(array_to_string(tags,' '),''))
+                    FROM nav_index WHERE {conditions}
+                    """,
+                    params,
+                )
+                rows = cur.fetchall()
+        scored = []
+        for path, label, llabel, lbody in rows:
+            score = sum((2 if t in llabel else 0) + (1 if t in lbody else 0) for t in terms)
+            scored.append((score, label, path))
+        scored.sort(key=lambda s: (-s[0], s[1]))
+        return [{"path": p, "label": l} for _, l, p in scored[:5]]
     except Exception as e:
-        logger.warning("L3 substring fallback failed: %s", e)
+        logger.warning("L3 keyword fallback failed: %s", e)
         return []
 
 
