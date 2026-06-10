@@ -421,8 +421,16 @@
         return;
       }
 
-      // MISS — API found nothing confident
+      // MISS — API found nothing confident.
+      // If suggest already populated the panel with candidates, keep them —
+      // a partial-word MISS must never wipe useful prefix matches.
+      // Only show the "no match" message if the panel is empty or showing a
+      // loading/status placeholder (currentItems.length === 0).
       if (data.layer === 'MISS' || !data.path) {
+        if (currentItems.length > 0) {
+          // Suggest results are showing — leave them, just stop the spinner
+          return;
+        }
         var suggestionHtml = data.suggestion
           ? '<br><span style="color:#aaa">' + escHtml(data.suggestion) + '</span>'
           : '';
