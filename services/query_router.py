@@ -10,6 +10,7 @@ from services import hot_path as hp
 from services import embedding as emb
 from services import intent
 from services import reranker as rer
+from services import spelling
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +19,10 @@ def route_query(query: str) -> NavigationResult:
     start = time.monotonic()
 
     # NLU preprocessing — reduce conversational questions to their intent
-    # core so every layer matches meaning, not phrasing:
-    # "where do I log a claim?" -> "log a claim"
-    core = intent.intent_core(query)
+    # core so every layer matches meaning, not phrasing, then snap typos to
+    # the searchable vocabulary:
+    # "where do I log a claim?" -> "log a claim"; "paymnet" -> "payment"
+    core = spelling.correct_query(intent.intent_core(query))
 
     # L0 — hot path registry (~1ms). Try the raw query first (aliases may be
     # full phrases), then the intent core if stripping changed anything.

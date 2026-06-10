@@ -14,8 +14,10 @@ Auto-promotion logic:
 import logging
 from datetime import datetime, timedelta
 
+import Levenshtein
+
 from core.db import get_conn
-from services.hot_path import upsert_path
+from services.intent import intent_core
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,9 @@ logger = logging.getLogger(__name__)
 PROMOTE_UNIQUE_QUERIES = 3    # distinct queries that led to this path
 PROMOTE_WINDOW_DAYS    = 7    # within this rolling window
 PROMOTE_MIN_CONFIDENCE = 0.60 # only promote results users actually chose
+MAX_ALIASES            = 12   # learned phrasings kept per hot path
+ALIAS_MAX_LEN          = 60   # ignore essay-length queries
+ALIAS_DUP_RATIO        = 0.90 # skip aliases this similar to an existing one
 
 
 def record_navigation(query: str, path: str, label: str, confidence: float) -> dict:
@@ -56,9 +61,60 @@ def record_navigation(query: str, path: str, label: str, confidence: float) -> d
         logger.warning("record_navigation insert failed: %s", exc)
         return {"recorded": False, "promoted": False, "promote_count": 0}
 
+    # Learn this phrasing: the user just confirmed that `query` means `path`,
+    # so its intent core becomes a hot-path alias. Next time the same (or a
+    # similar) question is asked it resolves at L0 with high confidence —
+    # the engine literally gets smarter with every navigation.
+    learned = _learn_alias(path, label, query)
+
     # Check auto-promotion eligibility
     promoted, count = _maybe_promote(path, label, confidence)
-    return {"recorded": True, "promoted": promoted, "promote_count": count}
+    return {"recorded": True, "promoted": promoted, "promote_count": count, "alias_learned": learned}
+
+
+def _learn_alias(path: str, label: str, query: str) -> bool:
+    """Attach the query's intent core as an alias on the path's hot-path row.
+
+    Creates the row if the path isn't hot yet. Aliases are deduped with a
+    Levenshtein similarity check (>= ALIAS_DUP_RATIO counts as already known)
+    and capped at MAX_ALIASES, evicting the oldest learned phrasing first.
+
+    Returns True if a new alias was stored.
+    """
+    core = intent_core(query)
+    if not core or len(core) > ALIAS_MAX_LEN:
+        return False
+    if core == (label or "").lower().strip():
+        return False  # the label itself already matches at L0
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, aliases FROM nav_hot_paths WHERE path = %s", (path,))
+                row = cur.fetchone()
+                if row:
+                    aliases = row[1] or []
+                    if any(Levenshtein.ratio(core, a.lower()) >= ALIAS_DUP_RATIO for a in aliases):
+                        return False
+                    aliases = (aliases + [core])[-MAX_ALIASES:]
+                    cur.execute(
+                        "UPDATE nav_hot_paths SET aliases = %s, updated_at = now() WHERE id = %s",
+                        (aliases, row[0]),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO nav_hot_paths (path, label, aliases, pinned)
+                        VALUES (%s, %s, %s, false)
+                        ON CONFLICT (path) DO NOTHING
+                        """,
+                        (path, label, [core]),
+                    )
+            conn.commit()
+        logger.info("learned alias %r for %s", core, path)
+        return True
+    except Exception as exc:
+        logger.warning("_learn_alias failed for %s: %s", path, exc)
+        return False
 
 
 def _maybe_promote(path: str, label: str, confidence: float) -> tuple:
@@ -99,9 +155,22 @@ def _maybe_promote(path: str, label: str, confidence: float) -> tuple:
     if count < PROMOTE_UNIQUE_QUERIES:
         return False, count
 
-    # Promote — upsert_path is idempotent
+    # Promote — insert if absent, refresh only the label if present.
+    # Must NOT overwrite aliases: _learn_alias accumulates learned phrasings
+    # on this row and a blanket upsert would wipe them.
     try:
-        upsert_path({"path": path, "label": label, "aliases": [], "pinned": False})
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO nav_hot_paths (path, label, aliases, pinned)
+                    VALUES (%s, %s, '{}', false)
+                    ON CONFLICT (path) DO UPDATE
+                        SET label = EXCLUDED.label, updated_at = now()
+                    """,
+                    (path, label),
+                )
+            conn.commit()
         logger.info("auto-promoted %s to hot-paths (unique_queries=%d)", path, count)
         return True, count
     except Exception as exc:
