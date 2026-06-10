@@ -60,6 +60,14 @@ def lambda_handler(event, context):
             q = (event.get("queryStringParameters") or {}).get("q", "")
             return handle_suggest(q)
 
+        # POST /navigate — feedback endpoint (no auth; called by widget after navigation)
+        # Intentionally unauthenticated: the data written is non-sensitive navigation
+        # telemetry.  Rate-limited at API Gateway (50 req/s) which is sufficient
+        # protection against bulk poisoning of the promotion counter.
+        if path in ("/navigate", "/navigate/") and method == "POST":
+            from routes.navigate import handle_navigate
+            return handle_navigate(_body(event))
+
         if path.startswith("/admin"):
             from core.auth import validate_admin_token
             from routes.admin import handle_admin

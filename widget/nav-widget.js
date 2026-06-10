@@ -311,13 +311,42 @@
 
   /**
    * Navigate to a resolved item.
-   * Records the navigation in recent history and learned paths.
+   * Records in recent history, learned-path cache, and fires POST /navigate
+   * so the server can promote popular results to the L0 hot-path registry.
+   * Uses sendBeacon (fire-and-forget, survives page unload) with fetch fallback.
    * @param {{ path: string, label: string, score: number }} item
    */
   function navigate(item) {
+    var query    = input.value.trim();
     var fullPath = cfg.basePath + item.path;
-    recordRecent(input.value.trim(), item.path, item.label);
-    learnPath(input.value.trim(), item.path, item.label, item.score);
+
+    recordRecent(query, item.path, item.label);
+    learnPath(query, item.path, item.label, item.score);
+
+    // Feedback to server — closes the loop so L1/L2 hits auto-promote to L0.
+    // Fire-and-forget: navigation must not be blocked by this request.
+    var payload = JSON.stringify({
+      query:      query,
+      path:       item.path,
+      label:      item.label,
+      confidence: item.score,
+    });
+    var url = cfg.apiUrl + '/navigate';
+    try {
+      if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        // sendBeacon survives page unload; Content-Type must be text/plain for
+        // CORS preflight-free delivery (server accepts and parses as JSON).
+        navigator.sendBeacon(url, new Blob([payload], { type: 'text/plain' }));
+      } else {
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Api-Key': cfg.apiKey },
+          body: payload,
+          keepalive: true,
+        }).catch(function () { /* non-critical — swallow silently */ });
+      }
+    } catch (e) { /* non-critical */ }
+
     close();
     window.location.href = fullPath;
   }

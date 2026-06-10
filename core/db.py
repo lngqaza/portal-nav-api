@@ -145,9 +145,22 @@ def _run_migrations():
         updated_at TIMESTAMP DEFAULT now()
     );
 
-    CREATE INDEX IF NOT EXISTS idx_hot_paths_rank    ON nav_hot_paths(hit_count DESC);
-    CREATE INDEX IF NOT EXISTS idx_query_log_created ON nav_query_log(created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_query_log_layer   ON nav_query_log(layer_used);
+    -- Navigation feedback log — records explicit user navigations from widget.
+    -- Drives auto-promotion of popular L1/L2 results to L0 hot-paths.
+    CREATE TABLE IF NOT EXISTS nav_navigate_log (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        raw_query       VARCHAR(500) NOT NULL,
+        navigated_path  VARCHAR(500) NOT NULL,
+        label           VARCHAR(200) NOT NULL DEFAULT '',
+        confidence      FLOAT NOT NULL DEFAULT 0.0,
+        created_at      TIMESTAMP DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_hot_paths_rank       ON nav_hot_paths(hit_count DESC);
+    CREATE INDEX IF NOT EXISTS idx_query_log_created    ON nav_query_log(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_query_log_layer      ON nav_query_log(layer_used);
+    CREATE INDEX IF NOT EXISTS idx_navigate_log_path    ON nav_navigate_log(navigated_path, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_navigate_log_created ON nav_navigate_log(created_at DESC);
 
     -- DB-01: hit_count must never go negative.
     -- Idempotent: only adds the constraint if it does not already exist.

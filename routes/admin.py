@@ -6,6 +6,8 @@ from core.db import get_conn
 from core.config import settings
 from services.hot_path import get_top_paths, upsert_path, evict_cold_paths
 from services.embedding import index_page
+from services.crawler import crawl_sitemap, bulk_index
+from services.feedback import get_navigation_stats
 
 
 def _r(status, data):
@@ -130,5 +132,28 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                 setattr(settings, k, cast(val))
                 updated[k] = cast(val)
         return _r(200, {"updated": updated})
+
+    # ── Bulk index ───────────────────────────────────────────────────────────
+    # POST /admin/index/bulk  { "pages": [{ path, label, description?, tags? }] }
+    if path == "/admin/index/bulk" and method == "POST":
+        pages = body.get("pages", [])
+        if not pages or not isinstance(pages, list):
+            return _r(400, {"error": "pages array is required"})
+        return _r(200, bulk_index(pages))
+
+    # ── Sitemap crawl ────────────────────────────────────────────────────────
+    # POST /admin/index/crawl  { "sitemap_url": "https://...", "label_prefix": "" }
+    if path == "/admin/index/crawl" and method == "POST":
+        sitemap_url = body.get("sitemap_url", "").strip()
+        if not sitemap_url:
+            return _r(400, {"error": "sitemap_url is required"})
+        result = crawl_sitemap(sitemap_url, body.get("label_prefix", ""))
+        return _r(200, result)
+
+    # ── Navigation feedback stats ─────────────────────────────────────────────
+    # GET /admin/feedback?days=7
+    if path == "/admin/feedback" and method == "GET":
+        days = int(params.get("days", 7))
+        return _r(200, get_navigation_stats(days))
 
     return _r(404, {"error": f"Unknown admin route: {method} {path}"})
