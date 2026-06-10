@@ -8,10 +8,10 @@ RUN pip install --no-cache-dir \
     "numpy==1.26.4" \
     "onnxscript" \
     "torch==2.3.1" \
-    "sentence-transformers==5.5.1" \
-    "optimum[onnxruntime]==2.2.0" \
+    "sentence-transformers==3.4.1" \
+    "optimum[onnxruntime]==1.27.0" \
     "onnxruntime==1.26.0" \
-    "transformers==5.5.1"
+    "transformers==4.51.3"
 
 RUN optimum-cli export onnx \
     --model sentence-transformers/all-MiniLM-L6-v2 \

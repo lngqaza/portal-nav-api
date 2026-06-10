@@ -278,28 +278,50 @@ jobs:
 
           # ── Alarm SNS wiring (idempotent) ─────────────────────────────────────
           # Re-apply on every deploy so alarms survive manual edits.
+          # Uses explicit put-metric-alarm per alarm — avoids inline Python in YAML.
           SNS_ARN="arn:aws:sns:$AWS_REGION:$ACCOUNT_ID:portal-nav-api-alerts"
-          for ALARM in portal-nav-api-error-rate portal-nav-api-p95-duration portal-nav-api-throttles portal-nav-api-5xx; do
-            CURRENT=$(aws cloudwatch describe-alarms --alarm-names "$ALARM" --region $AWS_REGION \
-              --query 'MetricAlarms[0].AlarmActions' --output text 2>/dev/null || echo "")
-            if [ "$CURRENT" != "$SNS_ARN" ]; then
-              CONFIG=$(aws cloudwatch describe-alarms --alarm-names "$ALARM" --region $AWS_REGION \
-                --query 'MetricAlarms[0]' --output json)
-              # Update alarm-actions in-place; all other fields unchanged
-              aws cloudwatch put-metric-alarm \
-                --cli-input-json "$(echo $CONFIG | python3 -c "
-import json,sys
-a=json.load(sys.stdin)
-a['AlarmActions']=['$SNS_ARN']
-a['OKActions']=['$SNS_ARN']
-# Remove read-only fields
-for k in ['AlarmArn','AlarmConfigurationUpdatedTimestamp','StateValue','StateReason',
-          'StateReasonData','StateUpdatedTimestamp','StateTransitionedTimestamp']:
-  a.pop(k,None)
-print(json.dumps(a))
-")" && echo "$ALARM: SNS wired"
-            fi
-          done
+
+          aws cloudwatch put-metric-alarm \
+            --region $AWS_REGION \
+            --alarm-name portal-nav-api-error-rate \
+            --metric-name Errors --namespace AWS/Lambda \
+            --dimensions Name=FunctionName,Value=$FUNCTION_NAME \
+            --statistic Sum --period 300 --evaluation-periods 1 \
+            --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold \
+            --treat-missing-data notBreaching \
+            --alarm-actions "$SNS_ARN" --ok-actions "$SNS_ARN"
+
+          aws cloudwatch put-metric-alarm \
+            --region $AWS_REGION \
+            --alarm-name portal-nav-api-p95-duration \
+            --metric-name Duration --namespace AWS/Lambda \
+            --dimensions Name=FunctionName,Value=$FUNCTION_NAME \
+            --extended-statistic p95 --period 300 --evaluation-periods 2 \
+            --threshold 5000 --comparison-operator GreaterThanThreshold \
+            --treat-missing-data notBreaching \
+            --alarm-actions "$SNS_ARN" --ok-actions "$SNS_ARN"
+
+          aws cloudwatch put-metric-alarm \
+            --region $AWS_REGION \
+            --alarm-name portal-nav-api-throttles \
+            --metric-name Throttles --namespace AWS/Lambda \
+            --dimensions Name=FunctionName,Value=$FUNCTION_NAME \
+            --statistic Sum --period 300 --evaluation-periods 1 \
+            --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold \
+            --treat-missing-data notBreaching \
+            --alarm-actions "$SNS_ARN" --ok-actions "$SNS_ARN"
+
+          aws cloudwatch put-metric-alarm \
+            --region $AWS_REGION \
+            --alarm-name portal-nav-api-5xx \
+            --metric-name 5xx --namespace AWS/ApiGateway \
+            --dimensions Name=ApiId,Value=$API_ID \
+            --statistic Sum --period 300 --evaluation-periods 1 \
+            --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold \
+            --treat-missing-data notBreaching \
+            --alarm-actions "$SNS_ARN" --ok-actions "$SNS_ARN"
+
+          echo "Alarm SNS wiring applied."
 
           API_URL=$(aws apigatewayv2 get-api --api-id $API_ID \
             --query 'ApiEndpoint' --output text)
