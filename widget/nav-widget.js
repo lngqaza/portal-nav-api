@@ -195,7 +195,7 @@
     '  <div id="nav-input-wrap">',
     '    <svg id="nav-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>',
     '    <input id="nav-input" type="text" autocomplete="off" spellcheck="false" />',
-    '    <button id="nav-mic" type="button" title="Search by voice" aria-label="Search by voice">',
+    '    <button id="nav-mic" type="button" title="Search by voice" aria-label="Search by voice" aria-pressed="false">',
     '      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>',
     '    </button>',
     '    <div id="nav-spinner"></div>',
@@ -609,6 +609,8 @@
   if (!SpeechRec) {
     micBtn.classList.add('nav-unsupported');
   } else {
+    // Keep focus in the input so Esc/arrow keys keep working after a click
+    micBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
     micBtn.addEventListener('click', function () {
       listening ? stopVoice() : startVoice();
     });
@@ -623,6 +625,7 @@
     recognizer.onstart = function () {
       listening = true;
       micBtn.classList.add('nav-listening');
+      micBtn.setAttribute('aria-pressed', 'true');
       showStatus('🎤', 'Listening… speak your question.');
     };
     recognizer.onresult = function (e) {
@@ -631,9 +634,13 @@
         transcript += e.results[i][0].transcript;
       }
       input.value = transcript;
-      // Final result → run it through the normal search pipeline
-      if (e.results[e.results.length - 1].isFinal) {
-        input.dispatchEvent(new Event('input', { bubbles: true }));
+      var q = transcript.trim();
+      if (e.results[e.results.length - 1].isFinal && q.length >= 3) {
+        // A final transcript is a complete question — skip the typing
+        // debounce and query the cascade directly (can auto-navigate).
+        showStatus('🎤', 'Heard: <em>"' + escHtml(q) + '"</em> — searching…');
+        clearTimeout(debounceTimer);
+        query(q);
       }
     };
     recognizer.onerror = function (e) {
@@ -653,6 +660,7 @@
   function stopVoice() {
     listening = false;
     micBtn.classList.remove('nav-listening');
+    micBtn.setAttribute('aria-pressed', 'false');
     if (recognizer) { try { recognizer.stop(); } catch (e) {} recognizer = null; }
   }
 
