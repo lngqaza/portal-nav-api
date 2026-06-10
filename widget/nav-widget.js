@@ -507,12 +507,62 @@
     }
   });
 
-  // Input — debounce query
+  // ── Input handler — 3-tier typing experience ────────────────────────────────
+  // Tier 1 (0–2 chars): show "keep typing" hint — never fire API on stubs
+  // Tier 2 (3+ chars, typing): call /query/suggest (LIKE prefix, instant DB hit)
+  //   → shows candidates immediately with no auto-navigate
+  // Tier 3 (3+ chars, debounce fired): call /query (full AI cascade)
+  //   → auto-navigates if confidence >= threshold
+  // This eliminates the "typed 2 chars, got MISS error" inconsistency.
+
+  var suggestXhr = null;   // track in-flight suggest request so we can abort on new keystroke
+
+  function suggest(q) {
+    // Cancel any pending suggest request
+    if (suggestXhr) { try { suggestXhr.abort(); } catch (e) {} suggestXhr = null; }
+
+    var xhr = new XMLHttpRequest();
+    suggestXhr = xhr;
+    xhr.open('GET', cfg.apiUrl + '/query/suggest?q=' + encodeURIComponent(q), true);
+    xhr.timeout = 4000;
+
+    xhr.onload = function () {
+      if (xhr !== suggestXhr) return;   // superseded by a newer keystroke
+      suggestXhr = null;
+      var data;
+      try { data = JSON.parse(xhr.responseText); } catch (e) { data = []; }
+      if (!Array.isArray(data) || !data.length) return;  // leave "searching…" state until debounce fires
+      // Show suggestions as selectable list — no auto-navigate on partial input
+      var items = data.map(function (r) {
+        return { path: r.path, label: r.label, score: 0.5, source: 'suggest' };
+      });
+      showResults(items, false);
+    };
+    xhr.onerror = xhr.ontimeout = function () { suggestXhr = null; };
+    xhr.send();
+  }
+
   input.addEventListener('input', function () {
     var q = input.value.trim();
     clearTimeout(debounceTimer);
-    if (!q) { showRecent(); return; }
+    if (suggestXhr) { try { suggestXhr.abort(); } catch (e) {} suggestXhr = null; }
+
+    if (!q) {
+      showRecent();
+      return;
+    }
+
+    if (q.length < 3) {
+      // Too short to search — give a clear hint instead of a confusing MISS error
+      showStatus('⌨️', 'Keep typing… <span style="color:#bbb">(' + q.length + '/3 chars)</span>');
+      return;
+    }
+
+    // 3+ chars: show "searching" and kick off suggest immediately for fast feedback
     showStatus('⌨️', 'Searching…');
+    suggest(q);
+
+    // Full AI query fires after debounce — this one can auto-navigate
     debounceTimer = setTimeout(function () { query(q); }, DEBOUNCE_MS);
   });
 
