@@ -183,6 +183,12 @@ jobs:
               --function-version "$VERSION" \
               --query 'AliasArn' --output text)
           else
+            # Must delete PC before updating alias version — AWS rejects
+            # put-provisioned-concurrency-config while an alias is mid-transition
+            # ("Alias with weights can not be used with Provisioned Concurrency")
+            echo "Deleting PC config before alias update..."
+            aws lambda delete-provisioned-concurrency-config \
+              --function-name $FUNCTION_NAME --qualifier live 2>/dev/null || true
             echo "Updating 'live' alias to version $VERSION..."
             ALIAS_ARN=$(aws lambda update-alias \
               --function-name $FUNCTION_NAME --name live \
