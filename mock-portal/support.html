@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Support — NovaSure Portal</title>
+  <link rel="stylesheet" href="assets/portal.css" />
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo"><div class="brand">Nova<span>Sure</span></div><div class="tagline">Member Self-Service Portal</div></div>
+  <button class="nav-search-btn" data-open-nav>🔍 Find anything…<span class="shortcut">Ctrl K</span></button>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Main</div>
+    <a href="index.html"    class="sidebar-link"><span class="icon">🏠</span> Dashboard</a>
+    <a href="claims.html"   class="sidebar-link"><span class="icon">📋</span> Claims <span class="badge">2</span></a>
+    <a href="policy.html"   class="sidebar-link"><span class="icon">🛡️</span> My Policy</a>
+    <a href="payments.html" class="sidebar-link"><span class="icon">💳</span> Payments</a>
+    <a href="benefits.html" class="sidebar-link"><span class="icon">🎁</span> Benefits</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Account</div>
+    <a href="account.html"   class="sidebar-link"><span class="icon">👤</span> Profile</a>
+    <a href="banking.html"   class="sidebar-link"><span class="icon">🏦</span> Banking Details</a>
+    <a href="documents.html" class="sidebar-link"><span class="icon">📁</span> Documents</a>
+    <a href="reports.html"   class="sidebar-link"><span class="icon">📊</span> Statements</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Help</div>
+    <a href="support.html" class="sidebar-link active"><span class="icon">💬</span> Support</a>
+    <a href="faq.html"     class="sidebar-link"><span class="icon">❓</span> FAQ</a>
+  </div>
+  <div class="sidebar-footer"><div class="avatar">TN</div><div><div class="name">Thabo Nkosi</div><div class="role">Member #ZA-00492817</div></div></div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <span class="topbar-title">Support</span>
+    <div class="topbar-search" data-open-nav>🔍 <span>Find any page…</span><span class="kbd">Ctrl K</span></div>
+  </header>
+  <div class="content">
+    <div class="grid-3" style="margin-bottom:28px">
+      <div class="stat-tile" style="text-align:center;cursor:pointer" onclick="alert('Calling 0800 123 456...')">
+        <div style="font-size:32px;margin-bottom:8px">📞</div>
+        <div class="stat-label">Call Us</div>
+        <div style="font-size:18px;font-weight:700;margin:6px 0">0800 123 456</div>
+        <div style="font-size:12px;color:#aaa">Mon–Fri 08:00–17:00</div>
+      </div>
+      <div class="stat-tile" style="text-align:center;cursor:pointer" onclick="alert('Opening WhatsApp...')">
+        <div style="font-size:32px;margin-bottom:8px">💬</div>
+        <div class="stat-label">WhatsApp</div>
+        <div style="font-size:18px;font-weight:700;margin:6px 0">+27 71 123 4567</div>
+        <div style="font-size:12px;color:#aaa">Available 24/7</div>
+      </div>
+      <div class="stat-tile" style="text-align:center;cursor:pointer" onclick="alert('Opening email client...')">
+        <div style="font-size:32px;margin-bottom:8px">✉️</div>
+        <div class="stat-label">Email Us</div>
+        <div style="font-size:18px;font-weight:700;margin:6px 0">support@novasure.co.za</div>
+        <div style="font-size:12px;color:#aaa">Reply within 24 hours</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h2>Send a Message</h2></div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Subject</label>
+            <select class="form-control">
+              <option>-- Select a topic --</option>
+              <option>Claim Query</option><option>Payment Issue</option><option>Policy Change</option>
+              <option>Banking Details</option><option>Documents</option><option>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Priority</label>
+            <select class="form-control"><option>Normal</option><option>Urgent</option></select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Message</label>
+          <textarea class="form-control" rows="5" placeholder="Describe your query…"></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="alert('Message sent. Reference: TKT-2026-00441. We will respond within 24 hours.')">Send Message</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="assets/portal.js"></script>
+<script src="assets/nav-widget.js" data-api-url="https://3jz6sk8vt7.execute-api.eu-west-1.amazonaws.com" data-api-key="nav-9eadef81559f12263d150308a53b2975" data-threshold="0.82" data-placeholder='Where do you want to go?'></script>
+</body></html>

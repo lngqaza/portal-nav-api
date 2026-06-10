@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payments — NovaSure Portal</title>
+  <link rel="stylesheet" href="assets/portal.css" />
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo"><div class="brand">Nova<span>Sure</span></div><div class="tagline">Member Self-Service Portal</div></div>
+  <button class="nav-search-btn" data-open-nav>🔍 Find anything…<span class="shortcut">Ctrl K</span></button>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Main</div>
+    <a href="index.html"    class="sidebar-link"><span class="icon">🏠</span> Dashboard</a>
+    <a href="claims.html"   class="sidebar-link"><span class="icon">📋</span> Claims <span class="badge">2</span></a>
+    <a href="policy.html"   class="sidebar-link"><span class="icon">🛡️</span> My Policy</a>
+    <a href="payments.html" class="sidebar-link active"><span class="icon">💳</span> Payments</a>
+    <a href="benefits.html" class="sidebar-link"><span class="icon">🎁</span> Benefits</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Account</div>
+    <a href="account.html"   class="sidebar-link"><span class="icon">👤</span> Profile</a>
+    <a href="banking.html"   class="sidebar-link"><span class="icon">🏦</span> Banking Details</a>
+    <a href="documents.html" class="sidebar-link"><span class="icon">📁</span> Documents</a>
+    <a href="reports.html"   class="sidebar-link"><span class="icon">📊</span> Statements</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Help</div>
+    <a href="support.html" class="sidebar-link"><span class="icon">💬</span> Support</a>
+    <a href="faq.html"     class="sidebar-link"><span class="icon">❓</span> FAQ</a>
+  </div>
+  <div class="sidebar-footer"><div class="avatar">TN</div><div><div class="name">Thabo Nkosi</div><div class="role">Member #ZA-00492817</div></div></div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <span class="topbar-title">Payments</span>
+    <div class="topbar-search" data-open-nav>🔍 <span>Find any page…</span><span class="kbd">Ctrl K</span></div>
+  </header>
+  <div class="content">
+    <div class="grid-2" style="margin-bottom:28px">
+      <div class="card">
+        <div class="card-header"><h2>Make a Payment</h2></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Payment Type</label>
+            <select class="form-control">
+              <option>Monthly Premium — R 1,240.00</option>
+              <option>Annual Premium (save 5%)</option>
+              <option>Arrears Payment</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Payment Method</label>
+            <select class="form-control">
+              <option>Debit Order (FNB ••4821)</option>
+              <option>EFT / Internet Banking</option>
+              <option>Credit Card</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Amount</label>
+            <input type="text" class="form-control" value="R 1,240.00" />
+          </div>
+          <button class="btn btn-primary" onclick="alert('Payment of R 1,240 processed successfully. Reference: PAY-2026-00812')">Pay Now</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h2>Debit Order Details</h2></div>
+        <div class="card-body">
+          <table class="table">
+            <tbody>
+              <tr><td style="color:#888;width:40%">Bank</td><td><strong>First National Bank</strong></td></tr>
+              <tr><td style="color:#888">Account</td><td>••••4821 (Cheque)</td></tr>
+              <tr><td style="color:#888">Debit Day</td><td>1st of each month</td></tr>
+              <tr><td style="color:#888">Amount</td><td>R 1,240.00</td></tr>
+              <tr><td style="color:#888">Status</td><td><span class="badge badge-green">Active</span></td></tr>
+            </tbody>
+          </table>
+          <div style="margin-top:16px"><a href="banking.html" class="btn btn-secondary">Update Banking Details</a></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h2>Payment History</h2></div>
+      <div class="card-body" style="padding:0">
+        <table class="table">
+          <thead><tr><th>Date</th><th>Reference</th><th>Description</th><th>Amount</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>01 Jun 2026</td><td>PAY-2026-00741</td><td>Monthly Premium</td><td>R 1,240.00</td><td><span class="badge badge-green">Paid</span></td></tr>
+            <tr><td>01 May 2026</td><td>PAY-2026-00612</td><td>Monthly Premium</td><td>R 1,240.00</td><td><span class="badge badge-green">Paid</span></td></tr>
+            <tr><td>01 Apr 2026</td><td>PAY-2026-00489</td><td>Monthly Premium</td><td>R 1,240.00</td><td><span class="badge badge-green">Paid</span></td></tr>
+            <tr><td>01 Mar 2026</td><td>PAY-2026-00341</td><td>Monthly Premium</td><td>R 1,240.00</td><td><span class="badge badge-green">Paid</span></td></tr>
+            <tr><td>01 Feb 2026</td><td>PAY-2026-00198</td><td>Monthly Premium</td><td>R 1,200.00</td><td><span class="badge badge-green">Paid</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="assets/portal.js"></script>
+<script src="assets/nav-widget.js" data-api-url="https://3jz6sk8vt7.execute-api.eu-west-1.amazonaws.com" data-api-key="nav-9eadef81559f12263d150308a53b2975" data-threshold="0.82" data-placeholder='Where do you want to go?'></script>
+</body></html>

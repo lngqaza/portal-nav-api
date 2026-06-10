@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — NovaSure Portal</title>
+  <link rel="stylesheet" href="assets/portal.css" />
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">Nova<span>Sure</span></div>
+    <div class="tagline">Member Self-Service Portal</div>
+  </div>
+  <button class="nav-search-btn" data-open-nav>🔍 Find anything…<span class="shortcut">Ctrl K</span></button>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Main</div>
+    <a href="index.html"    class="sidebar-link active"><span class="icon">🏠</span> Dashboard</a>
+    <a href="claims.html"   class="sidebar-link"><span class="icon">📋</span> Claims <span class="badge">2</span></a>
+    <a href="policy.html"   class="sidebar-link"><span class="icon">🛡️</span> My Policy</a>
+    <a href="payments.html" class="sidebar-link"><span class="icon">💳</span> Payments</a>
+    <a href="benefits.html" class="sidebar-link"><span class="icon">🎁</span> Benefits</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Account</div>
+    <a href="account.html"   class="sidebar-link"><span class="icon">👤</span> Profile</a>
+    <a href="banking.html"   class="sidebar-link"><span class="icon">🏦</span> Banking Details</a>
+    <a href="documents.html" class="sidebar-link"><span class="icon">📁</span> Documents</a>
+    <a href="reports.html"   class="sidebar-link"><span class="icon">📊</span> Statements</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Help</div>
+    <a href="support.html" class="sidebar-link"><span class="icon">💬</span> Support</a>
+    <a href="faq.html"     class="sidebar-link"><span class="icon">❓</span> FAQ</a>
+  </div>
+  <div class="sidebar-footer">
+    <div class="avatar">TN</div>
+    <div><div class="name">Thabo Nkosi</div><div class="role">Member #ZA-00492817</div></div>
+  </div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <span class="topbar-title">Dashboard</span>
+    <div class="topbar-search" data-open-nav>🔍 <span>Find any page…</span><span class="kbd">Ctrl K</span></div>
+  </header>
+  <div class="content">
+
+    <div class="alert alert-info" style="margin-bottom:24px">
+      💡 <strong>Tip:</strong> Press <kbd style="background:#dde8ff;border-radius:4px;padding:1px 6px">Ctrl+K</kbd> anywhere to instantly navigate to any page — no clicking required.
+    </div>
+
+    <div class="page-header">
+      <h1>Good morning, Thabo 👋</h1>
+      <p>Your policy is active. Last login: today at 08:42</p>
+    </div>
+
+    <div class="grid-4" style="margin-bottom:28px">
+      <div class="stat-tile">
+        <span class="stat-icon">🛡️</span>
+        <div class="stat-label">Policy Status</div>
+        <div class="stat-value" style="font-size:18px;margin-top:8px"><span class="badge badge-green">Active</span></div>
+        <div class="stat-delta">Renews 01 Mar 2027</div>
+      </div>
+      <div class="stat-tile">
+        <span class="stat-icon">📋</span>
+        <div class="stat-label">Open Claims</div>
+        <div class="stat-value">2</div>
+        <div class="stat-delta">1 awaiting documents</div>
+      </div>
+      <div class="stat-tile">
+        <span class="stat-icon">💳</span>
+        <div class="stat-label">Next Premium</div>
+        <div class="stat-value">R 1,240</div>
+        <div class="stat-delta">Due 01 Jul 2026</div>
+      </div>
+      <div class="stat-tile">
+        <span class="stat-icon">🎁</span>
+        <div class="stat-label">Benefit Balance</div>
+        <div class="stat-value">R 4,800</div>
+        <div class="stat-delta" style="color:#c97a00">↓ R200 used this month</div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:28px">
+      <div class="card">
+        <div class="card-header">
+          <h2>Recent Claims</h2>
+          <a href="claims.html" class="btn btn-secondary" style="font-size:12px;padding:6px 12px">View all</a>
+        </div>
+        <div class="card-body" style="padding:0">
+          <table class="table">
+            <thead><tr><th>Claim #</th><th>Type</th><th>Date</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><a href="claims.html" style="color:#4f9cf9;text-decoration:none">CLM-2026-0142</a></td><td>Medical</td><td>02 Jun 2026</td><td><span class="badge badge-orange">In Review</span></td></tr>
+              <tr><td><a href="claims.html" style="color:#4f9cf9;text-decoration:none">CLM-2026-0098</a></td><td>Retrenchment</td><td>14 May 2026</td><td><span class="badge badge-blue">Docs Needed</span></td></tr>
+              <tr><td>CLM-2025-0771</td><td>Disability</td><td>09 Nov 2025</td><td><span class="badge badge-green">Paid Out</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Quick Actions</h2>
+        </div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <a href="claims-new.html"  class="btn btn-primary"    style="justify-content:center">📋 Submit Claim</a>
+            <a href="payments.html"    class="btn btn-secondary"  style="justify-content:center">💳 Make Payment</a>
+            <a href="banking.html"     class="btn btn-secondary"  style="justify-content:center">🏦 Update Banking</a>
+            <a href="support.html"     class="btn btn-secondary"  style="justify-content:center">💬 Contact Us</a>
+            <a href="documents.html"   class="btn btn-secondary"  style="justify-content:center">📁 Documents</a>
+            <a href="benefits.html"    class="btn btn-secondary"  style="justify-content:center">🎁 Benefits</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2>Payment History</h2><a href="payments.html" class="btn btn-secondary" style="font-size:12px;padding:6px 12px">View all</a></div>
+      <div class="card-body" style="padding:0">
+        <table class="table">
+          <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>01 Jun 2026</td><td>Monthly Premium</td><td>R 1,240.00</td><td><span class="badge badge-green">Paid</span></td></tr>
+            <tr><td>01 May 2026</td><td>Monthly Premium</td><td>R 1,240.00</td><td><span class="badge badge-green">Paid</span></td></tr>
+            <tr><td>01 Apr 2026</td><td>Monthly Premium</td><td>R 1,240.00</td><td><span class="badge badge-green">Paid</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="assets/portal.js"></script>
+<script src="assets/nav-widget.js"
+  data-api-url="https://3jz6sk8vt7.execute-api.eu-west-1.amazonaws.com"
+  data-api-key="nav-9eadef81559f12263d150308a53b2975"
+  data-threshold="0.82"
+  data-placeholder='Where do you want to go? e.g. "submit a claim"'></script>
+</body>
+</html>

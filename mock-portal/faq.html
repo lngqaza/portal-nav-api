@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FAQ — NovaSure Portal</title>
+  <link rel="stylesheet" href="assets/portal.css" />
+  <style>
+    details { border:1px solid #e8eaed; border-radius:8px; margin-bottom:10px; overflow:hidden; }
+    details summary { padding:14px 18px; cursor:pointer; font-weight:600; font-size:14px; list-style:none; display:flex; justify-content:space-between; align-items:center; background:#fff; }
+    details summary::-webkit-details-marker { display:none; }
+    details summary::after { content:'＋'; font-size:18px; color:#aaa; }
+    details[open] summary::after { content:'－'; }
+    details .faq-body { padding:14px 18px 18px; font-size:13.5px; color:#555; line-height:1.6; border-top:1px solid #f0f2f5; }
+  </style>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo"><div class="brand">Nova<span>Sure</span></div><div class="tagline">Member Self-Service Portal</div></div>
+  <button class="nav-search-btn" data-open-nav>🔍 Find anything…<span class="shortcut">Ctrl K</span></button>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Main</div>
+    <a href="index.html"    class="sidebar-link"><span class="icon">🏠</span> Dashboard</a>
+    <a href="claims.html"   class="sidebar-link"><span class="icon">📋</span> Claims <span class="badge">2</span></a>
+    <a href="policy.html"   class="sidebar-link"><span class="icon">🛡️</span> My Policy</a>
+    <a href="payments.html" class="sidebar-link"><span class="icon">💳</span> Payments</a>
+    <a href="benefits.html" class="sidebar-link"><span class="icon">🎁</span> Benefits</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Account</div>
+    <a href="account.html"   class="sidebar-link"><span class="icon">👤</span> Profile</a>
+    <a href="banking.html"   class="sidebar-link"><span class="icon">🏦</span> Banking Details</a>
+    <a href="documents.html" class="sidebar-link"><span class="icon">📁</span> Documents</a>
+    <a href="reports.html"   class="sidebar-link"><span class="icon">📊</span> Statements</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Help</div>
+    <a href="support.html" class="sidebar-link"><span class="icon">💬</span> Support</a>
+    <a href="faq.html"     class="sidebar-link active"><span class="icon">❓</span> FAQ</a>
+  </div>
+  <div class="sidebar-footer"><div class="avatar">TN</div><div><div class="name">Thabo Nkosi</div><div class="role">Member #ZA-00492817</div></div></div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <span class="topbar-title">Frequently Asked Questions</span>
+    <div class="topbar-search" data-open-nav>🔍 <span>Find any page…</span><span class="kbd">Ctrl K</span></div>
+  </header>
+  <div class="content" style="max-width:800px">
+    <div class="page-header"><h1>FAQ</h1><p>Common questions about your NovaSure policy</p></div>
+    <details><summary>How do I submit a new claim?</summary><div class="faq-body">Go to <a href="claims-new.html">Claims → Submit New Claim</a>. Select your claim type, fill in the incident details, upload supporting documents and click Submit. You'll receive a reference number by SMS immediately.</div></details>
+    <details><summary>How long does a claim take to process?</summary><div class="faq-body">Standard claims are assessed within 5–10 business days. Medical and disability claims may take up to 15 business days depending on the complexity and whether all documents have been submitted.</div></details>
+    <details><summary>How do I update my banking details?</summary><div class="faq-body">Go to <a href="banking.html">Account → Banking Details</a>. Changes take effect on the next payment cycle. You'll receive an SMS confirmation after saving.</div></details>
+    <details><summary>I forgot my password. What should I do?</summary><div class="faq-body">Click "Forgot Password" on the login page. A reset link will be sent to your registered email address. The link expires after 30 minutes.</div></details>
+    <details><summary>How do I add or change a beneficiary?</summary><div class="faq-body">Go to <a href="policy.html">My Policy → Beneficiaries</a>. You can add, edit or remove beneficiaries at any time. Changes are effective immediately on submission.</div></details>
+    <details><summary>How do I download my tax certificate?</summary><div class="faq-body">Go to <a href="reports.html">Statements</a>. Your IT3b tax certificate for each tax year is available for download from 1 March following the end of that tax year.</div></details>
+    <details><summary>What documents do I need for a retrenchment claim?</summary><div class="faq-body">You will need: (1) A letter of retrenchment from your employer on company letterhead, (2) your latest payslip, (3) a copy of your ID. Upload these via <a href="claims-new.html">Submit New Claim</a>.</div></details>
+  </div>
+</div>
+<script src="assets/portal.js"></script>
+<script src="assets/nav-widget.js" data-api-url="https://3jz6sk8vt7.execute-api.eu-west-1.amazonaws.com" data-api-key="nav-9eadef81559f12263d150308a53b2975" data-threshold="0.82" data-placeholder='Where do you want to go?'></script>
+</body></html>

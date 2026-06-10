@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Submit a Claim — NovaSure Portal</title>
+  <link rel="stylesheet" href="assets/portal.css" />
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo"><div class="brand">Nova<span>Sure</span></div><div class="tagline">Member Self-Service Portal</div></div>
+  <button class="nav-search-btn" data-open-nav>🔍 Find anything…<span class="shortcut">Ctrl K</span></button>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Main</div>
+    <a href="index.html"    class="sidebar-link"><span class="icon">🏠</span> Dashboard</a>
+    <a href="claims.html"   class="sidebar-link active"><span class="icon">📋</span> Claims</a>
+    <a href="policy.html"   class="sidebar-link"><span class="icon">🛡️</span> My Policy</a>
+    <a href="payments.html" class="sidebar-link"><span class="icon">💳</span> Payments</a>
+    <a href="benefits.html" class="sidebar-link"><span class="icon">🎁</span> Benefits</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Account</div>
+    <a href="account.html"   class="sidebar-link"><span class="icon">👤</span> Profile</a>
+    <a href="banking.html"   class="sidebar-link"><span class="icon">🏦</span> Banking Details</a>
+    <a href="documents.html" class="sidebar-link"><span class="icon">📁</span> Documents</a>
+    <a href="reports.html"   class="sidebar-link"><span class="icon">📊</span> Statements</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Help</div>
+    <a href="support.html" class="sidebar-link"><span class="icon">💬</span> Support</a>
+    <a href="faq.html"     class="sidebar-link"><span class="icon">❓</span> FAQ</a>
+  </div>
+  <div class="sidebar-footer"><div class="avatar">TN</div><div><div class="name">Thabo Nkosi</div><div class="role">Member #ZA-00492817</div></div></div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <span class="topbar-title">Submit a New Claim</span>
+    <div class="topbar-search" data-open-nav>🔍 <span>Find any page…</span><span class="kbd">Ctrl K</span></div>
+  </header>
+  <div class="content" style="max-width:700px">
+    <div style="margin-bottom:20px"><a href="claims.html" style="color:#4f9cf9;font-size:13px;text-decoration:none">← Back to Claims</a></div>
+    <div class="card">
+      <div class="card-header"><h2>New Claim Application</h2></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Claim Type</label>
+          <select class="form-control">
+            <option>-- Select claim type --</option>
+            <option>Medical Expenses</option>
+            <option>Disability Benefit</option>
+            <option>Retrenchment Benefit</option>
+            <option>Funeral Cover</option>
+            <option>Critical Illness</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Date of Incident</label>
+            <input type="date" class="form-control" value="2026-06-10" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Estimated Amount (R)</label>
+            <input type="number" class="form-control" placeholder="e.g. 15000" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" rows="4" placeholder="Describe your claim in detail…"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Supporting Documents</label>
+          <div style="border:2px dashed #d8dce3;border-radius:8px;padding:32px;text-align:center;color:#aaa;cursor:pointer">
+            📎 Click to upload or drag files here<br>
+            <small>PDF, JPG, PNG up to 10MB</small>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:8px">
+          <button class="btn btn-primary" onclick="alert('Claim CLM-2026-0143 submitted successfully!')">Submit Claim</button>
+          <a href="claims.html" class="btn btn-secondary">Cancel</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="assets/portal.js"></script>
+<script src="assets/nav-widget.js" data-api-url="https://3jz6sk8vt7.execute-api.eu-west-1.amazonaws.com" data-api-key="nav-9eadef81559f12263d150308a53b2975" data-threshold="0.82" data-placeholder='Where do you want to go?'></script>
+</body></html>

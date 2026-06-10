@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Policy — NovaSure Portal</title>
+  <link rel="stylesheet" href="assets/portal.css" />
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo"><div class="brand">Nova<span>Sure</span></div><div class="tagline">Member Self-Service Portal</div></div>
+  <button class="nav-search-btn" data-open-nav>🔍 Find anything…<span class="shortcut">Ctrl K</span></button>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Main</div>
+    <a href="index.html"    class="sidebar-link"><span class="icon">🏠</span> Dashboard</a>
+    <a href="claims.html"   class="sidebar-link"><span class="icon">📋</span> Claims <span class="badge">2</span></a>
+    <a href="policy.html"   class="sidebar-link active"><span class="icon">🛡️</span> My Policy</a>
+    <a href="payments.html" class="sidebar-link"><span class="icon">💳</span> Payments</a>
+    <a href="benefits.html" class="sidebar-link"><span class="icon">🎁</span> Benefits</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Account</div>
+    <a href="account.html"   class="sidebar-link"><span class="icon">👤</span> Profile</a>
+    <a href="banking.html"   class="sidebar-link"><span class="icon">🏦</span> Banking Details</a>
+    <a href="documents.html" class="sidebar-link"><span class="icon">📁</span> Documents</a>
+    <a href="reports.html"   class="sidebar-link"><span class="icon">📊</span> Statements</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Help</div>
+    <a href="support.html" class="sidebar-link"><span class="icon">💬</span> Support</a>
+    <a href="faq.html"     class="sidebar-link"><span class="icon">❓</span> FAQ</a>
+  </div>
+  <div class="sidebar-footer"><div class="avatar">TN</div><div><div class="name">Thabo Nkosi</div><div class="role">Member #ZA-00492817</div></div></div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <span class="topbar-title">My Policy</span>
+    <div class="topbar-search" data-open-nav>🔍 <span>Find any page…</span><span class="kbd">Ctrl K</span></div>
+  </header>
+  <div class="content">
+    <div class="grid-2" style="margin-bottom:24px">
+      <div class="card">
+        <div class="card-header"><h2>Policy Summary</h2><span class="badge badge-green">Active</span></div>
+        <div class="card-body">
+          <table class="table">
+            <tbody>
+              <tr><td style="color:#888;width:45%">Policy Number</td><td><strong>NS-ZA-00492817</strong></td></tr>
+              <tr><td style="color:#888">Product</td><td>NovaSure Comprehensive Cover</td></tr>
+              <tr><td style="color:#888">Start Date</td><td>01 March 2021</td></tr>
+              <tr><td style="color:#888">Renewal Date</td><td>01 March 2027</td></tr>
+              <tr><td style="color:#888">Monthly Premium</td><td><strong>R 1,240.00</strong></td></tr>
+              <tr><td style="color:#888">Total Cover</td><td><strong>R 2,500,000</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h2>Cover Breakdown</h2></div>
+        <div class="card-body">
+          <table class="table">
+            <thead><tr><th>Benefit</th><th>Cover Amount</th></tr></thead>
+            <tbody>
+              <tr><td>Life Cover</td><td>R 1,500,000</td></tr>
+              <tr><td>Disability Benefit</td><td>R 500,000</td></tr>
+              <tr><td>Critical Illness</td><td>R 250,000</td></tr>
+              <tr><td>Retrenchment Benefit</td><td>R 24,000/yr</td></tr>
+              <tr><td>Funeral Cover</td><td>R 15,000</td></tr>
+              <tr><td>Medical Expenses</td><td>R 50,000/yr</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h2>Beneficiaries</h2><button class="btn btn-secondary" style="font-size:12px;padding:6px 12px">+ Add Beneficiary</button></div>
+      <div class="card-body" style="padding:0">
+        <table class="table">
+          <thead><tr><th>Name</th><th>Relationship</th><th>ID Number</th><th>Split</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Nomsa Nkosi</strong></td><td>Spouse</td><td>780912 0842 083</td><td>70%</td></tr>
+            <tr><td><strong>Lethiwe Nkosi</strong></td><td>Child</td><td>050304 5192 082</td><td>30%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="assets/portal.js"></script>
+<script src="assets/nav-widget.js" data-api-url="https://3jz6sk8vt7.execute-api.eu-west-1.amazonaws.com" data-api-key="nav-9eadef81559f12263d150308a53b2975" data-threshold="0.82" data-placeholder='Where do you want to go?'></script>
+</body></html>

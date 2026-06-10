@@ -1,0 +1,80 @@
+<!--
+  _layout.html — reference layout (not loaded directly).
+  Every page copies the <aside> sidebar and <header> topbar from this file.
+  Replace PAGE_TITLE and TOPBAR_TITLE per page.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAGE_TITLE — NovaSure Portal</title>
+  <link rel="stylesheet" href="/assets/portal.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">Nova<span>Sure</span></div>
+    <div class="tagline">Member Self-Service Portal</div>
+  </div>
+
+  <button class="nav-search-btn" data-open-nav>
+    🔍 Find anything…
+    <span class="shortcut">Ctrl K</span>
+  </button>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Main</div>
+    <a href="/index.html"        class="sidebar-link"><span class="icon">🏠</span> Dashboard</a>
+    <a href="/claims.html"       class="sidebar-link"><span class="icon">📋</span> Claims <span class="badge">2</span></a>
+    <a href="/policy.html"       class="sidebar-link"><span class="icon">🛡️</span> My Policy</a>
+    <a href="/payments.html"     class="sidebar-link"><span class="icon">💳</span> Payments</a>
+    <a href="/benefits.html"     class="sidebar-link"><span class="icon">🎁</span> Benefits</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Account</div>
+    <a href="/account.html"      class="sidebar-link"><span class="icon">👤</span> Profile</a>
+    <a href="/banking.html"      class="sidebar-link"><span class="icon">🏦</span> Banking Details</a>
+    <a href="/documents.html"    class="sidebar-link"><span class="icon">📁</span> Documents</a>
+    <a href="/reports.html"      class="sidebar-link"><span class="icon">📊</span> Statements</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Help</div>
+    <a href="/support.html"      class="sidebar-link"><span class="icon">💬</span> Support</a>
+    <a href="/faq.html"          class="sidebar-link"><span class="icon">❓</span> FAQ</a>
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="avatar">TN</div>
+    <div>
+      <div class="name">Thabo Nkosi</div>
+      <div class="role">Member #ZA-00492817</div>
+    </div>
+  </div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <span class="topbar-title">TOPBAR_TITLE</span>
+    <div class="topbar-search topbar-search-clickable" data-open-nav>
+      🔍 <span>Find any page…</span>
+      <span class="kbd">Ctrl K</span>
+    </div>
+  </header>
+
+  <div class="content">
+    <!-- PAGE CONTENT HERE -->
+  </div>
+</div>
+
+<script src="/assets/portal.js"></script>
+<script
+  src="/assets/nav-widget.js"
+  data-api-url="https://3jz6sk8vt7.execute-api.eu-west-1.amazonaws.com"
+  data-api-key="nav-9eadef81559f12263d150308a53b2975"
+  data-threshold="0.82"
+  data-placeholder='Where do you want to go? e.g. "submit a claim" or "update banking details"'
+></script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Benefits — NovaSure Portal</title>
+  <link rel="stylesheet" href="assets/portal.css" />
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo"><div class="brand">Nova<span>Sure</span></div><div class="tagline">Member Self-Service Portal</div></div>
+  <button class="nav-search-btn" data-open-nav>🔍 Find anything…<span class="shortcut">Ctrl K</span></button>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Main</div>
+    <a href="index.html"    class="sidebar-link"><span class="icon">🏠</span> Dashboard</a>
+    <a href="claims.html"   class="sidebar-link"><span class="icon">📋</span> Claims <span class="badge">2</span></a>
+    <a href="policy.html"   class="sidebar-link"><span class="icon">🛡️</span> My Policy</a>
+    <a href="payments.html" class="sidebar-link"><span class="icon">💳</span> Payments</a>
+    <a href="benefits.html" class="sidebar-link active"><span class="icon">🎁</span> Benefits</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Account</div>
+    <a href="account.html"   class="sidebar-link"><span class="icon">👤</span> Profile</a>
+    <a href="banking.html"   class="sidebar-link"><span class="icon">🏦</span> Banking Details</a>
+    <a href="documents.html" class="sidebar-link"><span class="icon">📁</span> Documents</a>
+    <a href="reports.html"   class="sidebar-link"><span class="icon">📊</span> Statements</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Help</div>
+    <a href="support.html" class="sidebar-link"><span class="icon">💬</span> Support</a>
+    <a href="faq.html"     class="sidebar-link"><span class="icon">❓</span> FAQ</a>
+  </div>
+  <div class="sidebar-footer"><div class="avatar">TN</div><div><div class="name">Thabo Nkosi</div><div class="role">Member #ZA-00492817</div></div></div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <span class="topbar-title">Benefits</span>
+    <div class="topbar-search" data-open-nav>🔍 <span>Find any page…</span><span class="kbd">Ctrl K</span></div>
+  </header>
+  <div class="content">
+    <div class="grid-3" style="margin-bottom:28px">
+      <div class="stat-tile"><span class="stat-icon">💊</span><div class="stat-label">Medical Allowance</div><div class="stat-value">R 3,200</div><div class="stat-delta">R 1,800 remaining</div></div>
+      <div class="stat-tile"><span class="stat-icon">🦷</span><div class="stat-label">Dental Cover</div><div class="stat-value">R 800</div><div class="stat-delta">R 800 remaining</div></div>
+      <div class="stat-tile"><span class="stat-icon">👓</span><div class="stat-label">Optical Cover</div><div class="stat-value">R 800</div><div class="stat-delta" style="color:#c97a00">R 0 remaining (used)</div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header"><h2>Benefits Calculator</h2></div>
+        <div class="card-body">
+          <p style="color:#888;font-size:13px;margin-bottom:20px">Estimate your benefit payout based on your policy terms.</p>
+          <div class="form-group">
+            <label class="form-label">Benefit Type</label>
+            <select class="form-control" id="ben-type" onchange="calcBenefit()">
+              <option value="0">-- Select benefit --</option>
+              <option value="1500000">Life Cover (R 1,500,000)</option>
+              <option value="500000">Disability (R 500,000)</option>
+              <option value="250000">Critical Illness (R 250,000)</option>
+              <option value="24000">Retrenchment / Year (R 24,000)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Years on Policy</label>
+            <input type="range" min="1" max="20" value="5" id="ben-years" oninput="calcBenefit()" style="width:100%" />
+            <div style="font-size:12px;color:#888;margin-top:4px"><span id="ben-years-val">5</span> years</div>
+          </div>
+          <div style="background:#f4f6f9;border-radius:8px;padding:16px;margin-top:8px;text-align:center">
+            <div style="font-size:12px;color:#888;margin-bottom:4px">Estimated Payout</div>
+            <div id="ben-result" style="font-size:28px;font-weight:700;color:#1a8a4a">R 0</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h2>Wellness Benefits</h2></div>
+        <div class="card-body" style="padding:0">
+          <table class="table">
+            <thead><tr><th>Benefit</th><th>Annual Limit</th><th>Used</th><th>Remaining</th></tr></thead>
+            <tbody>
+              <tr><td>Gym Membership</td><td>R 2,400</td><td>R 1,200</td><td><span class="badge badge-green">R 1,200</span></td></tr>
+              <tr><td>Dietitian</td><td>R 800</td><td>R 0</td><td><span class="badge badge-green">R 800</span></td></tr>
+              <tr><td>Physiotherapy</td><td>R 1,500</td><td>R 600</td><td><span class="badge badge-green">R 900</span></td></tr>
+              <tr><td>Mental Health</td><td>R 2,000</td><td>R 2,000</td><td><span class="badge badge-red">R 0</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function calcBenefit() {
+  var base = parseInt(document.getElementById('ben-type').value) || 0;
+  var years = parseInt(document.getElementById('ben-years').value);
+  document.getElementById('ben-years-val').textContent = years;
+  var bonus = years >= 5 ? 1.05 : 1.0;
+  var result = Math.round(base * bonus);
+  document.getElementById('ben-result').textContent = result ? 'R ' + result.toLocaleString() : 'R 0';
+}
+</script>
+<script src="assets/portal.js"></script>
+<script src="assets/nav-widget.js" data-api-url="https://3jz6sk8vt7.execute-api.eu-west-1.amazonaws.com" data-api-key="nav-9eadef81559f12263d150308a53b2975" data-threshold="0.82" data-placeholder='Where do you want to go?'></script>
+</body></html>
