@@ -165,11 +165,55 @@ jobs:
             aws lambda wait function-updated --function-name $FUNCTION_NAME
           fi
 
+          # ── Publish version + update 'live' alias ──────────────────────────
+          # Provisioned concurrency requires a named alias (not $LATEST).
+          # Every deploy publishes an immutable version and advances the alias.
+          echo "Publishing Lambda version..."
+          VERSION=$(aws lambda publish-version \
+            --function-name $FUNCTION_NAME \
+            --query 'Version' --output text)
+          echo "Published version $VERSION"
+
+          ALIAS_ARN=$(aws lambda get-alias --function-name $FUNCTION_NAME \
+            --name live --query 'AliasArn' --output text 2>/dev/null || echo "")
+          if [ -z "$ALIAS_ARN" ]; then
+            echo "Creating 'live' alias..."
+            ALIAS_ARN=$(aws lambda create-alias \
+              --function-name $FUNCTION_NAME --name live \
+              --function-version "$VERSION" \
+              --query 'AliasArn' --output text)
+          else
+            echo "Updating 'live' alias to version $VERSION..."
+            ALIAS_ARN=$(aws lambda update-alias \
+              --function-name $FUNCTION_NAME --name live \
+              --function-version "$VERSION" \
+              --query 'AliasArn' --output text)
+          fi
+          echo "ALIAS_ARN=$ALIAS_ARN" >> $GITHUB_ENV
+
+          # ── Provisioned concurrency = 1 ────────────────────────────────────
+          # Keeps 1 warm ONNX instance; eliminates the ~15s cold-start p90
+          # seen in load testing. Cost: ~$12/month for 1 × 1024 MB instance.
+          echo "Setting provisioned concurrency = 1 on alias 'live'..."
+          aws lambda put-provisioned-concurrency-config \
+            --function-name $FUNCTION_NAME \
+            --qualifier live \
+            --provisioned-concurrent-executions 1
+          # Poll until READY (typically 60-90s for a 1GB container image)
+          for i in $(seq 1 20); do
+            STATUS=$(aws lambda get-provisioned-concurrency-config \
+              --function-name $FUNCTION_NAME --qualifier live \
+              --query 'Status' --output text 2>/dev/null || echo "PENDING")
+            echo "  PC status: $STATUS (attempt $i/20)"
+            [ "$STATUS" = "READY" ] && break
+            sleep 15
+          done
+
       - name: Create or verify API Gateway HTTP API
         id: api
         run: |
-          LAMBDA_ARN=$(aws lambda get-function --function-name $FUNCTION_NAME \
-            --query 'Configuration.FunctionArn' --output text)
+          # Use the 'live' alias ARN so API Gateway always invokes provisioned instances
+          ALIAS_ARN="arn:aws:lambda:$AWS_REGION:$ACCOUNT_ID:function:$FUNCTION_NAME:live"
 
           API_ID=$(aws apigatewayv2 get-apis \
             --query "Items[?Name=='$API_NAME'].ApiId" --output text)
@@ -179,20 +223,42 @@ jobs:
             API_ID=$(aws apigatewayv2 create-api \
               --name $API_NAME \
               --protocol-type HTTP \
-              --target $LAMBDA_ARN \
+              --target $ALIAS_ARN \
               --query 'ApiId' --output text)
             aws lambda add-permission \
-              --function-name $FUNCTION_NAME \
+              --function-name "$FUNCTION_NAME:live" \
               --statement-id apigateway-invoke \
               --action lambda:InvokeFunction \
               --principal apigateway.amazonaws.com \
               --source-arn "arn:aws:execute-api:$AWS_REGION:$ACCOUNT_ID:${API_ID}/*/*"
+          else
+            # Ensure the integration points to the alias (idempotent update)
+            INTEG_ID=$(aws apigatewayv2 get-integrations --api-id $API_ID \
+              --query 'Items[0].IntegrationId' --output text)
+            CURRENT_URI=$(aws apigatewayv2 get-integration \
+              --api-id $API_ID --integration-id $INTEG_ID \
+              --query 'IntegrationUri' --output text)
+            if [ "$CURRENT_URI" != "$ALIAS_ARN" ]; then
+              echo "Updating API Gateway integration to alias ARN..."
+              aws apigatewayv2 update-integration \
+                --api-id $API_ID \
+                --integration-id $INTEG_ID \
+                --integration-uri $ALIAS_ARN
+              # Add invoke permission on alias if not already present
+              aws lambda add-permission \
+                --function-name "$FUNCTION_NAME:live" \
+                --statement-id apigateway-invoke \
+                --action lambda:InvokeFunction \
+                --principal apigateway.amazonaws.com \
+                --source-arn "arn:aws:execute-api:$AWS_REGION:$ACCOUNT_ID:${API_ID}/*/*" \
+                2>/dev/null || true
+            fi
           fi
 
           API_URL=$(aws apigatewayv2 get-api --api-id $API_ID \
             --query 'ApiEndpoint' --output text)
           echo "api_url=$API_URL" >> $GITHUB_OUTPUT
-          echo "API live at: $API_URL"
+          echo "API live at: $API_URL (alias: live)"
 
   # ──────────────────────────────────────────────────────────────────────────
   # Job 4: Post-deploy integration tests.

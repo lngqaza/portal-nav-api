@@ -130,8 +130,22 @@ BODY=$(cat <<DASHBOARD
     },
 
     {
+      "type": "alarm",
+      "x": 0, "y": 13, "width": 24, "height": 3,
+      "properties": {
+        "title": "Alarms",
+        "alarms": [
+          "arn:aws:cloudwatch:eu-west-1:684756697968:alarm:portal-nav-api-error-rate",
+          "arn:aws:cloudwatch:eu-west-1:684756697968:alarm:portal-nav-api-p95-duration",
+          "arn:aws:cloudwatch:eu-west-1:684756697968:alarm:portal-nav-api-throttles",
+          "arn:aws:cloudwatch:eu-west-1:684756697968:alarm:portal-nav-api-5xx"
+        ]
+      }
+    },
+
+    {
       "type": "text",
-      "x": 0, "y": 13, "width": 24, "height": 1,
+      "x": 0, "y": 16, "width": 24, "height": 1,
       "properties": {
         "markdown": "### Runbook\n[AppSec runbook](https://github.com/lngqaza/portal-nav-api/blob/master/docs/governance/appsec-runbook.md) | [README](https://github.com/lngqaza/portal-nav-api/blob/master/README.md) | Logs: CloudWatch Log groups: /aws/lambda/portal-nav-api"
       }
