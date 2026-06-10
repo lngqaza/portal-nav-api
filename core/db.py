@@ -188,18 +188,15 @@ def _run_migrations():
         END IF;
     END $$;
 
-    -- nav_query_log.layer_used must be one of the four valid cascade levels.
-    -- Enforces the VALID_LAYERS invariant at the DB level.
+    -- nav_query_log.layer_used must be a valid cascade level.
+    -- Recreated idempotently: L3 (keyword fallback) and L4 (weak candidates)
+    -- were added to the cascade, so the original four-value constraint is
+    -- dropped and replaced with the six-value form.
     DO $$ BEGIN
-        IF NOT EXISTS (
-            SELECT 1 FROM pg_constraint
-            WHERE conname = 'chk_layer_used_valid'
-              AND conrelid = 'nav_query_log'::regclass
-        ) THEN
-            ALTER TABLE nav_query_log
-                ADD CONSTRAINT chk_layer_used_valid
-                    CHECK (layer_used IN ('L0', 'L1', 'L2', 'MISS'));
-        END IF;
+        ALTER TABLE nav_query_log DROP CONSTRAINT IF EXISTS chk_layer_used_valid;
+        ALTER TABLE nav_query_log
+            ADD CONSTRAINT chk_layer_used_valid
+                CHECK (layer_used IN ('L0', 'L1', 'L2', 'L3', 'L4', 'MISS'));
     END $$;
     """
     with get_conn() as conn:

@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from models.navigation import HotPathResult, EmbeddingResult, NavigationResult
 
-VALID_LAYERS = {"L0", "L1", "L2", "MISS"}
+VALID_LAYERS = {"L0", "L1", "L2", "L3", "L4", "MISS"}
 
 
 # ── ROUTE-01: route_query never raises ────────────────────────────────────────

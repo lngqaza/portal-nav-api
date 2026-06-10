@@ -1,5 +1,6 @@
 """L0: Hot path registry — fuzzy string match against top-N usage-ranked paths."""
 import logging
+import re
 from typing import Optional
 
 import Levenshtein
@@ -7,12 +8,25 @@ import Levenshtein
 from core.config import settings
 from core.db import get_conn
 from models.navigation import HotPathResult
+from services.intent import STOPWORDS
 
 logger = logging.getLogger(__name__)
 
 
+def _norm(s: str) -> str:
+    """Stopword-free form so "log my claims" still matches alias "log claims"."""
+    return " ".join(w for w in re.findall(r"[a-z0-9]+", (s or "").lower()) if w not in STOPWORDS)
+
+
+def _sim(q: str, qn: str, target: str) -> float:
+    """Best similarity between the query (raw + normalised) and a target string."""
+    t = (target or "").lower()
+    return max(Levenshtein.ratio(q, t), Levenshtein.ratio(qn, _norm(t)))
+
+
 def lookup(query: str) -> Optional[HotPathResult]:
     q = query.lower().strip()
+    qn = _norm(q) or q
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -37,11 +51,15 @@ def lookup(query: str) -> Optional[HotPathResult]:
     total = len(rows)
 
     for idx, row in enumerate(rows):
-        lev_label = Levenshtein.ratio(q, (row[2] or "").lower())
+        lev_label = _sim(q, qn, row[2])
         aliases = row[3] or []
-        lev_alias = max((Levenshtein.ratio(q, a.lower()) for a in aliases), default=0.0)
+        lev_alias = max((_sim(q, qn, a) for a in aliases), default=0.0)
         rank_pct = 1.0 - (idx / max(total, 1))
-        score = 0.4 * lev_label + 0.4 * lev_alias + 0.2 * rank_pct
+        # Best text match dominates: a learned alias that matches the query
+        # exactly must clear HOT_PATH_THRESHOLD on its own — the old
+        # 0.4/0.4/0.2 split capped a perfect alias at ~0.65 when the label
+        # differed, silently disabling phrase learning.
+        score = 0.8 * max(lev_label, lev_alias) + 0.2 * rank_pct
 
         if score > best_score:
             best_score, best_row = score, row
