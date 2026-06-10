@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>portal-nav-api — Widget Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 700px; margin: 80px auto; padding: 0 24px; color: #333; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    p  { color: #666; line-height: 1.6; }
+    .open-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: #111; color: #fff; border: none; border-radius: 8px;
+      padding: 12px 20px; font-size: 15px; cursor: pointer; margin-top: 24px;
+    }
+    .open-btn kbd {
+      background: rgba(255,255,255,.15); border-radius: 4px;
+      padding: 2px 7px; font-size: 12px; font-family: monospace;
+    }
+    .note { margin-top: 32px; background: #f9f9f9; border-radius: 8px; padding: 16px 20px; font-size: 13px; color: #888; }
+    .note code { background: #eee; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>🧭 portal-nav-api Widget</h1>
+  <p>
+    Type anything and the widget navigates you there automatically —
+    no clicking required. Press <strong>Ctrl+K</strong> (or Cmd+K on Mac)
+    to open the command palette.
+  </p>
+
+  <button class="open-btn" onclick="NavWidget.open()">
+    🔍 Find anything
+    <kbd>Ctrl K</kbd>
+  </button>
+
+  <div class="note">
+    <strong>Try typing:</strong> "submit a claim", "update banking details", "view policy", "forgot password"
+    <br><br>
+    <strong>Auto-navigate:</strong> if confidence ≥ 85%, you'll be sent there immediately.
+    <br>
+    <strong>Learned paths:</strong> high-confidence results are cached in <code>localStorage</code>
+    and resolve in &lt;1ms on repeat visits — no API call.
+    <br>
+    <strong>Keyboard:</strong> <code>↑↓</code> to navigate results, <code>Enter</code> to go, <code>Esc</code> to close.
+  </div>
+
+  <!--
+    Replace data-api-url and data-api-key with your real values.
+    data-base-path: prefix for all paths (e.g. "/portal" if your app lives at /portal/*)
+    data-threshold: auto-navigate confidence cutoff (default 0.85)
+  -->
+  <script
+    src="nav-widget.js"
+    data-api-url="https://3jz6sk8vt7.execute-api.eu-west-1.amazonaws.com"
+    data-api-key="REPLACE_WITH_YOUR_KEY"
+    data-threshold="0.85"
+    data-base-path=""
+    data-placeholder='Where do you want to go? (e.g. "submit a claim")'
+  ></script>
+</body>
+</html>
