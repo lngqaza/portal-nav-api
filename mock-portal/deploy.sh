@@ -67,3 +67,12 @@ echo "  - 'view my policy'"
 echo "  - 'make a payment'"
 echo "  - 'forgot password'"
 echo "  - 'download tax certificate'"
+
+# Invalidate the CloudFront HTTPS front so deploys are visible immediately.
+# (Distribution EQT6YWI25BMG2 fronts the bucket for voice nav, which needs HTTPS.)
+CF_DIST_ID="${CF_DIST_ID:-EQT6YWI25BMG2}"
+if aws cloudfront get-distribution --id "$CF_DIST_ID" >/dev/null 2>&1; then
+  aws cloudfront create-invalidation --distribution-id "$CF_DIST_ID" --paths "/*" >/dev/null
+  echo "→ CloudFront cache invalidated ($CF_DIST_ID)"
+  echo "→ HTTPS URL: https://dqto7bjc8xm6i.cloudfront.net"
+fi
