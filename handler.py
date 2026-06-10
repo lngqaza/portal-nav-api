@@ -32,8 +32,23 @@ init_pool()
 
 
 def lambda_handler(event, context):
-    path = event.get("rawPath", "/")
+    path   = event.get("rawPath", "/")
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET").upper()
+
+    # CORS preflight — API Gateway quick-create routes OPTIONS to Lambda via
+    # the $default catch-all, bypassing the API-level CORS auto-handler.
+    # Return 200 immediately so the browser's preflight succeeds.
+    if method == "OPTIONS":
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Access-Control-Allow-Origin":  "*",
+                "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+                "Access-Control-Allow-Headers": "content-type,x-api-key",
+                "Access-Control-Max-Age":       "300",
+            },
+            "body": "",
+        }
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
 
     logger.info(json.dumps({"path": path, "method": method}))
