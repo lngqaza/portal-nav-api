@@ -5,6 +5,16 @@ Routes: /query  /query/batch  /query/suggest  /health  /admin/*
 import json
 import logging
 
+# X-Ray tracing — patch all supported libraries (psycopg2, requests).
+# Must run before any library import so the patches take effect.
+# LAMBDA_TASK_ROOT is always set in the Lambda runtime; only patch there
+# to avoid breaking local test runs where aws-xray-sdk may not be installed.
+import os
+if os.environ.get("LAMBDA_TASK_ROOT"):
+    from aws_xray_sdk.core import xray_recorder, patch_all
+    xray_recorder.configure(service="portal-nav-api")
+    patch_all()
+
 # Module-level init — runs once per cold start, reused on warm invocations
 from core.config import settings
 

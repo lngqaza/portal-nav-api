@@ -125,7 +125,13 @@ jobs:
               --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
             aws iam attach-role-policy --role-name portal-nav-lambda-role \
               --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+            aws iam attach-role-policy --role-name portal-nav-lambda-role \
+              --policy-arn arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
             sleep 15
+          else
+            # Ensure X-Ray policy is attached (idempotent for existing roles)
+            aws iam attach-role-policy --role-name portal-nav-lambda-role \
+              --policy-arn arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess 2>/dev/null || true
           fi
           echo "ROLE_ARN=$ROLE_ARN" >> $GITHUB_ENV
 
@@ -161,6 +167,7 @@ jobs:
               --function-name $FUNCTION_NAME \
               --timeout 60 \
               --memory-size 1024 \
+              --tracing-config Mode=Active \
               --environment "$ENV_VARS"
             aws lambda wait function-updated --function-name $FUNCTION_NAME
           fi
@@ -351,7 +358,7 @@ print(json.dumps(a))
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: tests/wave3/package-lock.json
 

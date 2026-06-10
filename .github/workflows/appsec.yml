@@ -91,14 +91,9 @@ jobs:
           # Capture JSON for artifact; -o writes to file (-S is --strict boolean, not severity)
           pip-audit -r requirements.txt -f json -o pip-audit.json || true
           # Hard gate: fail on any CVE that has a stable fix available.
-          # Suppressions — both have no fix in any stable 4.x release:
-          #   CVE-2026-1839  : transformers — fix only in 5.0.0rc3 (pre-release)
-          #   PYSEC-2025-217 : transformers — no fix version listed in OSV database
-          # Both will be re-evaluated when transformers 5.x is validated for
-          # compatibility with our ONNX tokenizer (AutoTokenizer.from_pretrained).
-          pip-audit -r requirements.txt \
-            --ignore-vuln CVE-2026-1839 \
-            --ignore-vuln PYSEC-2025-217
+          # transformers upgraded to 5.5.1 — CVE-2026-1839 and PYSEC-2025-217 resolved.
+          # No suppressions required.
+          pip-audit -r requirements.txt
 
       # ── OWASP Dependency-Check (thorough NVD scan) ────────────────────
       - name: OWASP Dependency-Check
@@ -123,7 +118,7 @@ jobs:
       # ── npm audit (Wave 3 test deps) ──────────────────────────────────
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: npm audit (Wave 3)
         working-directory: tests/wave3
