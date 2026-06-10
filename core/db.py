@@ -188,6 +188,10 @@ def _run_migrations():
         END IF;
     END $$;
 
+    -- Self-discovery dedup: hash of last-indexed content per page so
+    -- re-visits skip re-embedding unless the page changed.
+    ALTER TABLE nav_index ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);
+
     -- nav_query_log.layer_used must be a valid cascade level.
     -- Recreated idempotently: L3 (keyword fallback) and L4 (weak candidates)
     -- were added to the cascade, so the original four-value constraint is

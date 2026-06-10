@@ -83,6 +83,14 @@ def lambda_handler(event, context):
             from routes.navigate import handle_navigate
             return handle_navigate(_body(event))
 
+        # POST /discover — widget self-discovery (API-key auth: writes to the
+        # search index, so unlike /navigate it must not be open).
+        if path in ("/discover", "/discover/") and method == "POST":
+            from core.auth import validate_api_key
+            from routes.discover import handle_discover
+            validate_api_key(headers)
+            return handle_discover(_body(event))
+
         if path.startswith("/admin"):
             from core.auth import validate_admin_token
             from routes.admin import handle_admin

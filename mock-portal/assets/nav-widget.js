@@ -669,6 +669,62 @@
     if (e.target === overlay) close();
   });
 
+  // ── Self-discovery ───────────────────────────────────────────────────────────
+  // The widget knows the page it's on — so pages index themselves. On first
+  // visit per browser session the DOM's title, meta description, headings,
+  // and action texts are reported to /discover; the server skips re-indexing
+  // unless the content changed. Opt out with data-discover="off".
+
+  function discoverSelf() {
+    if ((scriptEl.getAttribute('data-discover') || 'on') === 'off') return;
+    var pagePath = window.location.pathname || '/';
+    var sessionKey = 'nav_discovered:' + cfg.cacheVersion + ':' + pagePath;
+    try { if (sessionStorage.getItem(sessionKey)) return; } catch (e) { /* continue without dedup */ }
+
+    var h1 = document.querySelector('h1');
+    var siteName = document.querySelector('meta[property="og:site_name"]');
+    // Title cleaned of " | Site" / " — Site" suffixes
+    var title = (document.title || '').split(/\s*[|—–-]\s+/)[0].trim();
+    var label = (h1 && h1.textContent.trim()) || title;
+    if (!label) return; // nothing meaningful to index yet
+
+    var metaDesc = document.querySelector('meta[name="description"]');
+    var heads = [];
+    document.querySelectorAll('h2, h3').forEach(function (el) {
+      var t = el.textContent.replace(/\s+/g, ' ').trim();
+      if (t && heads.indexOf(t) < 0 && heads.length < 8) heads.push(t);
+    });
+    var actions = [];
+    document.querySelectorAll('button, a[href], [role="button"]').forEach(function (el) {
+      var t = el.textContent.replace(/\s+/g, ' ').trim();
+      if (t && t.length >= 3 && t.length <= 40 && actions.indexOf(t) < 0 && actions.length < 8) actions.push(t);
+    });
+
+    var payload = {
+      path: pagePath,
+      label: label.slice(0, 120),
+      description: ((metaDesc && metaDesc.content) || heads.join('. ')).slice(0, 400),
+      tags: heads.concat(actions).slice(0, 12),
+    };
+    if (siteName && siteName.content) payload.tags.unshift(siteName.content.trim().toLowerCase());
+
+    fetch(cfg.apiUrl + '/discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': cfg.apiKey },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).then(function () {
+      try { sessionStorage.setItem(sessionKey, '1'); } catch (e) {}
+    }).catch(function () { /* non-critical — retry next page view */ });
+  }
+
+  // Defer until the page is idle so discovery never competes with rendering
+  if (document.readyState === 'complete') {
+    setTimeout(discoverSelf, 2000);
+  } else {
+    window.addEventListener('load', function () { setTimeout(discoverSelf, 2000); });
+  }
+
   // ── Public API ───────────────────────────────────────────────────────────────
 
   global.NavWidget = {
