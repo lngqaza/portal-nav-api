@@ -11,7 +11,8 @@ def handle_query(body: dict, scope: list = None):
     query = str(body.get("query", "")).strip()
     if not query:
         return _r(400, {"error": "query field is required"})
-    return _r(200, route_query(query, scope).to_dict())
+    context_path = str(body.get("context_path", "")).strip() or None
+    return _r(200, route_query(query, scope, context_path=context_path).to_dict())
 
 
 def handle_batch(body: dict, scope: list = None):

@@ -488,7 +488,7 @@
       );
     };
 
-    xhr.send(JSON.stringify({ query: q }));
+    xhr.send(JSON.stringify({ query: q, context_path: window.location.pathname }));
   }
 
   // ── Open / close ─────────────────────────────────────────────────────────────

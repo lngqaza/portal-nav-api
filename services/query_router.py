@@ -15,7 +15,18 @@ from services import spelling
 logger = logging.getLogger(__name__)
 
 
-def route_query(query: str, scope: list = None) -> NavigationResult:
+def route_query(query: str, scope: list = None, context_path: str = None) -> NavigationResult:
+    """
+    Route a navigation query through the L0→L1→L2→L3→L4→MISS cascade.
+
+    Args:
+        query:        Raw query string from the user.
+        scope:        List of site_ids to search; home site is first.
+        context_path: The page the user is currently on (from widget). Used to
+                      boost results semantically related to the current section,
+                      so "my account" on /flights.html still resolves correctly
+                      but "add bags" on /flights.html gets a stronger flight signal.
+    """
     scope = scope or ["default"]
     site = scope[0]  # home site — all writes (logs, misses, learning) go here
     start = time.monotonic()
@@ -33,16 +44,29 @@ def route_query(query: str, scope: list = None) -> NavigationResult:
         r0 = hp.lookup(core, scope)
     if r0:
         ms = _ms(start)
-        _log(query, r0.path, "L0", r0.confidence, ms, site)
+        _log(query, r0.path, "L0", r0.confidence, ms, site, context_path)
         return NavigationResult(r0.path, r0.label, r0.confidence, "L0", ms)
 
     # L1 — semantic embedding search (~8-50ms) on the intent core: question
     # scaffolding drags the vector away from the page descriptions.
     candidates = emb.search(core, top_k=5, scope=scope)
+
+    # Context boost: if the user is already on a page, nudge candidates that
+    # share its top-level path segment (e.g. /flights/ boosts other flight pages).
+    # Applied as a score multiplier so it can't promote a low-confidence result
+    # past the L1 threshold on its own — it only breaks ties.
+    if context_path and candidates:
+        ctx_seg = context_path.strip('/').split('/')[0]
+        for c in candidates:
+            cand_seg = c.path.strip('/').split('/')[0]
+            if ctx_seg and ctx_seg == cand_seg:
+                c.score = min(c.score * 1.10, 1.0)
+        candidates.sort(key=lambda c: -c.score)
+
     if candidates and candidates[0].score >= settings.L1_THRESHOLD:
         top = candidates[0]
         ms = _ms(start)
-        _log(query, top.path, "L1", top.score, ms, site)
+        _log(query, top.path, "L1", top.score, ms, site, context_path)
         return NavigationResult(
             top.path, top.label, top.score, "L1", ms,
             candidates=[{"path": c.path, "label": c.label, "score": round(c.score, 4)} for c in candidates[:3]],
@@ -53,7 +77,7 @@ def route_query(query: str, scope: list = None) -> NavigationResult:
         best = rer.rerank(core, candidates)
         if best:
             ms = _ms(start)
-            _log(query, best.path, "L2", best.score, ms, site)
+            _log(query, best.path, "L2", best.score, ms, site, context_path)
             return NavigationResult(best.path, best.label, best.score, "L2", ms)
 
     # L3 — keyword fallback against nav_index. Catches partial words ("dash")
@@ -65,7 +89,7 @@ def route_query(query: str, scope: list = None) -> NavigationResult:
     like_hits = _keyword_fallback(core, scope)
     if like_hits:
         ms = _ms(start)
-        _log(query, like_hits[0]["path"], "L3", 0.5, ms, site)
+        _log(query, like_hits[0]["path"], "L3", 0.5, ms, site, context_path)
         return NavigationResult(
             like_hits[0]["path"], like_hits[0]["label"], 0.5, "L3", ms,
             candidates=[{"path": h["path"], "label": h["label"], "score": 0.5} for h in like_hits],
@@ -77,7 +101,7 @@ def route_query(query: str, scope: list = None) -> NavigationResult:
     if candidates:
         top = candidates[0]
         ms = _ms(start)
-        _log(query, top.path, "L4", top.score, ms, site)
+        _log(query, top.path, "L4", top.score, ms, site, context_path)
         return NavigationResult(
             top.path, top.label, min(top.score, 0.5), "L4", ms,
             candidates=[{"path": c.path, "label": c.label, "score": round(min(c.score, 0.5), 4)} for c in candidates[:3]],
@@ -86,7 +110,7 @@ def route_query(query: str, scope: list = None) -> NavigationResult:
     # MISS
     hp.record_miss(query, site)
     ms = _ms(start)
-    _log(query, None, "MISS", 0.0, ms, site)
+    _log(query, None, "MISS", 0.0, ms, site, context_path)
     return NavigationResult(None, None, 0.0, "MISS", ms, suggestion="No match found")
 
 
@@ -146,13 +170,14 @@ def _ms(start: float) -> int:
     return int((time.monotonic() - start) * 1000)
 
 
-def _log(query: str, path: Optional[str], layer: str, confidence: float, ms: int, site: str = "default"):
+def _log(query: str, path: Optional[str], layer: str, confidence: float, ms: int,
+         site: str = "default", context_path: Optional[str] = None):
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO nav_query_log (raw_query,matched_path,layer_used,confidence,response_ms,site_id) VALUES (%s,%s,%s,%s,%s,%s)",
-                    (query[:500], path, layer, confidence, ms, site),
+                    "INSERT INTO nav_query_log (raw_query,matched_path,layer_used,confidence,response_ms,site_id,context_path) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (query[:500], path, layer, confidence, ms, site, context_path),
                 )
             conn.commit()
     except Exception as e:

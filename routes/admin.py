@@ -8,6 +8,8 @@ from services.hot_path import get_top_paths, upsert_path, evict_cold_paths
 from services.embedding import index_page
 from services.crawler import crawl_sitemap, bulk_index
 from services.feedback import get_navigation_stats
+from services.analytics import get_analytics
+from services.miss_mining import get_miss_report
 
 
 def _r(status, data):
@@ -155,5 +157,19 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     if path == "/admin/feedback" and method == "GET":
         days = int(params.get("days", 7))
         return _r(200, get_navigation_stats(days))
+
+    # ── Analytics — CTR, daily volume, layer breakdown, top queries/pages ─────
+    # GET /admin/analytics?days=7&site=lumo
+    if path == "/admin/analytics" and method == "GET":
+        days = int(params.get("days", 7))
+        site = params.get("site") or None
+        return _r(200, get_analytics(days, site))
+
+    # ── Miss-mining report ────────────────────────────────────────────────────
+    # GET /admin/miss-report?days=7&site=lumo
+    if path == "/admin/miss-report" and method == "GET":
+        days = int(params.get("days", 7))
+        site = params.get("site") or None
+        return _r(200, get_miss_report(days, site))
 
     return _r(404, {"error": f"Unknown admin route: {method} {path}"})

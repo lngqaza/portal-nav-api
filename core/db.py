@@ -218,6 +218,10 @@ def _run_migrations():
             ADD CONSTRAINT chk_layer_used_valid
                 CHECK (layer_used IN ('L0', 'L1', 'L2', 'L3', 'L4', 'MISS'));
     END $$;
+
+    -- Landing-page inference: record which page the user was on when they queried.
+    -- Drives context-boost analysis and future personalization.
+    ALTER TABLE nav_query_log ADD COLUMN IF NOT EXISTS context_path VARCHAR(500);
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
