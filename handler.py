@@ -61,19 +61,21 @@ def lambda_handler(event, context):
         if path in ("/query", "/query/") and method == "POST":
             from core.auth import validate_api_key
             from routes.query import handle_query
-            validate_api_key(headers)
-            return handle_query(_body(event))
+            scope = validate_api_key(headers)
+            return handle_query(_body(event), scope)
 
         if path in ("/query/batch", "/query/batch/") and method == "POST":
             from core.auth import validate_api_key
             from routes.query import handle_batch
-            validate_api_key(headers)
-            return handle_batch(_body(event))
+            scope = validate_api_key(headers)
+            return handle_batch(_body(event), scope)
 
         if path in ("/query/suggest", "/query/suggest/") and method == "GET":
+            from core.auth import resolve_scope
             from routes.query import handle_suggest
-            q = (event.get("queryStringParameters") or {}).get("q", "")
-            return handle_suggest(q)
+            qs = event.get("queryStringParameters") or {}
+            scope = resolve_scope(qs.get("k", "")) or ["default"]
+            return handle_suggest(qs.get("q", ""), scope)
 
         # POST /navigate — feedback endpoint (no auth; called by widget after navigation)
         # Intentionally unauthenticated: the data written is non-sensitive navigation
@@ -88,8 +90,8 @@ def lambda_handler(event, context):
         if path in ("/discover", "/discover/") and method == "POST":
             from core.auth import validate_api_key
             from routes.discover import handle_discover
-            validate_api_key(headers)
-            return handle_discover(_body(event))
+            scope = validate_api_key(headers)
+            return handle_discover(_body(event), scope)
 
         if path.startswith("/admin"):
             from core.auth import validate_admin_token

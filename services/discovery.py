@@ -56,7 +56,7 @@ def content_hash(page: dict) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
-def discover_page(body: dict) -> dict:
+def discover_page(body: dict, site: str = "default") -> dict:
     """Index a self-reported page if it is new or its content changed.
 
     Returns {indexed: bool, reason: str}.
@@ -66,7 +66,7 @@ def discover_page(body: dict) -> dict:
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT content_hash FROM nav_index WHERE path = %s", (page["path"],))
+                cur.execute("SELECT content_hash FROM nav_index WHERE site_id = %s AND path = %s", (site, page["path"]))
                 row = cur.fetchone()
         if row and row[0] == h:
             return {"indexed": False, "reason": "unchanged"}
@@ -74,13 +74,13 @@ def discover_page(body: dict) -> dict:
         logger.warning("discover hash check failed (indexing anyway): %s", e)
 
     # index_page embeds and upserts label/description/tags
-    index_page(page["path"], page["label"], page["description"], page["tags"])
+    index_page(page["path"], page["label"], page["description"], page["tags"], site)
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE nav_index SET content_hash = %s WHERE path = %s",
-                    (h, page["path"]),
+                    "UPDATE nav_index SET content_hash = %s WHERE site_id = %s AND path = %s",
+                    (h, site, page["path"]),
                 )
             conn.commit()
     except Exception as e:

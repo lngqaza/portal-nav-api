@@ -355,6 +355,9 @@
       path:       item.path,
       label:      item.label,
       confidence: item.score,
+      // sendBeacon cannot set headers, so the key rides in the body — the
+      // server uses it to attribute this navigation to the right site.
+      key:        cfg.apiKey,
     });
     var url = cfg.apiUrl + '/navigate';
     try {
@@ -540,7 +543,7 @@
 
     var xhr = new XMLHttpRequest();
     suggestXhr = xhr;
-    xhr.open('GET', cfg.apiUrl + '/query/suggest?q=' + encodeURIComponent(q), true);
+    xhr.open('GET', cfg.apiUrl + '/query/suggest?q=' + encodeURIComponent(q) + '&k=' + encodeURIComponent(cfg.apiKey), true);
     xhr.timeout = 4000;
 
     xhr.onload = function () {

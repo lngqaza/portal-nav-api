@@ -66,9 +66,11 @@ def test_auth04_api_key_validation_uses_compare_digest():
     """
     import inspect
     from core import auth
-    source = inspect.getsource(auth.validate_api_key)
+    # The constant-time comparison lives in resolve_scope, which
+    # validate_api_key delegates to (multi-tenancy refactor).
+    source = inspect.getsource(auth.resolve_scope)
     assert "hmac.compare_digest" in source, (
-        "validate_api_key must use hmac.compare_digest — not == or 'in'"
+        "resolve_scope must use hmac.compare_digest — not == or 'in'"
     )
     # Also confirm the banned patterns are absent from the auth module source
     full_source = inspect.getsource(auth)

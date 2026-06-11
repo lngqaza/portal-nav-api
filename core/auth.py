@@ -22,20 +22,36 @@ def validate_api_key(headers: dict) -> str:
         headers: lowercase-normalised HTTP headers dict from the Lambda event.
 
     Returns:
-        The validated key string.
+        The key's site scope: list of site_ids, home site first.
 
     Raises:
         PermissionError: if the key is absent, empty, or does not match any
             configured key.
     """
-    key = headers.get("x-api-key", "")
-    if not key:
+    scope = resolve_scope(headers.get("x-api-key", ""))
+    if scope is None:
         raise PermissionError("Invalid or missing API key")
+    return scope
+
+
+def resolve_scope(key: str):
+    """Constant-time lookup of the site scope for an API key.
+
+    Iterates ALL keys regardless of early match to prevent timing attacks.
+
+    Args:
+        key: Raw API key string (may be empty).
+
+    Returns:
+        List of site_ids (home site first), or None when the key matches nothing.
+    """
+    if not key:
+        return None
 
     # Compare against every configured key in constant time.
     # hmac.compare_digest requires equal-length bytes; encode both sides so a
     # length mismatch doesn't short-circuit before the byte-by-byte compare.
-    matched = False
+    scope = None
     key_b = key.encode()
     for configured in settings.API_KEYS:
         # Pad the shorter string to the length of the longer before comparing
@@ -47,12 +63,9 @@ def validate_api_key(headers: dict) -> str:
             key_b.ljust(max_len, b"\x00"),
             cfg_b.ljust(max_len, b"\x00"),
         ):
-            matched = True
+            scope = settings.KEY_SCOPES.get(configured, ["default"])
         # Do NOT break — always iterate all keys.
-
-    if not matched:
-        raise PermissionError("Invalid or missing API key")
-    return key
+    return scope
 
 
 def validate_admin_token(headers: dict) -> str:

@@ -1,5 +1,6 @@
 """POST /navigate — records a user navigation event and triggers auto-promotion."""
 import json
+from core.auth import resolve_scope
 from services.feedback import record_navigation
 
 
@@ -34,5 +35,8 @@ def handle_navigate(body: dict) -> dict:
     if not query or not path or not label:
         return _r(400, {"error": "query, path, and label are required"})
 
-    result = record_navigation(query, path, label, confidence)
+    # sendBeacon cannot set headers, so the widget carries its API key in the
+    # body; an unknown/absent key falls back to the default tenant.
+    scope = resolve_scope(str(body.get("key", ""))) or ["default"]
+    result = record_navigation(query, path, label, confidence, scope[0])
     return _r(200, result)

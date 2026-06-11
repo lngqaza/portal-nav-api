@@ -7,7 +7,7 @@ def _r(status, data):
     return {"statusCode": status, "headers": {"Content-Type": "application/json"}, "body": json.dumps(data)}
 
 
-def handle_discover(body: dict) -> dict:
+def handle_discover(body: dict, scope: list = None) -> dict:
     """
     Index a page self-reported by the nav widget.
 
@@ -22,4 +22,4 @@ def handle_discover(body: dict) -> dict:
         Lambda proxy response: {indexed: bool, reason: "new"|"updated"|"unchanged"}.
         ValueError from sanitisation bubbles to the handler's 400 mapping.
     """
-    return _r(200, discover_page(body))
+    return _r(200, discover_page(body, (scope or ["default"])[0]))

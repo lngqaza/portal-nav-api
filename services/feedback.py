@@ -30,7 +30,7 @@ ALIAS_MAX_LEN          = 60   # ignore essay-length queries
 ALIAS_DUP_RATIO        = 0.90 # skip aliases this similar to an existing one
 
 
-def record_navigation(query: str, path: str, label: str, confidence: float) -> dict:
+def record_navigation(query: str, path: str, label: str, confidence: float, site: str = "default") -> dict:
     """
     Record that a user chose `path` in response to `query`.
 
@@ -51,10 +51,10 @@ def record_navigation(query: str, path: str, label: str, confidence: float) -> d
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO nav_navigate_log (raw_query, navigated_path, label, confidence)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO nav_navigate_log (raw_query, navigated_path, label, confidence, site_id)
+                    VALUES (%s, %s, %s, %s, %s)
                     """,
-                    (query[:500], path[:500], label[:200], confidence),
+                    (query[:500], path[:500], label[:200], confidence, site),
                 )
             conn.commit()
     except Exception as exc:
@@ -65,14 +65,14 @@ def record_navigation(query: str, path: str, label: str, confidence: float) -> d
     # so its intent core becomes a hot-path alias. Next time the same (or a
     # similar) question is asked it resolves at L0 with high confidence —
     # the engine literally gets smarter with every navigation.
-    learned = _learn_alias(path, label, query)
+    learned = _learn_alias(path, label, query, site)
 
     # Check auto-promotion eligibility
-    promoted, count = _maybe_promote(path, label, confidence)
+    promoted, count = _maybe_promote(path, label, confidence, site)
     return {"recorded": True, "promoted": promoted, "promote_count": count, "alias_learned": learned}
 
 
-def _learn_alias(path: str, label: str, query: str) -> bool:
+def _learn_alias(path: str, label: str, query: str, site: str = "default") -> bool:
     """Attach the query's intent core as an alias on the path's hot-path row.
 
     Creates the row if the path isn't hot yet. Aliases are deduped with a
@@ -89,7 +89,7 @@ def _learn_alias(path: str, label: str, query: str) -> bool:
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id, aliases FROM nav_hot_paths WHERE path = %s", (path,))
+                cur.execute("SELECT id, aliases FROM nav_hot_paths WHERE site_id = %s AND path = %s", (site, path))
                 row = cur.fetchone()
                 if row:
                     aliases = row[1] or []
@@ -103,11 +103,11 @@ def _learn_alias(path: str, label: str, query: str) -> bool:
                 else:
                     cur.execute(
                         """
-                        INSERT INTO nav_hot_paths (path, label, aliases, pinned)
-                        VALUES (%s, %s, %s, false)
-                        ON CONFLICT (path) DO NOTHING
+                        INSERT INTO nav_hot_paths (site_id, path, label, aliases, pinned)
+                        VALUES (%s, %s, %s, %s, false)
+                        ON CONFLICT (site_id, path) DO NOTHING
                         """,
-                        (path, label, [core]),
+                        (site, path, label, [core]),
                     )
             conn.commit()
         logger.info("learned alias %r for %s", core, path)
@@ -117,7 +117,7 @@ def _learn_alias(path: str, label: str, query: str) -> bool:
         return False
 
 
-def _maybe_promote(path: str, label: str, confidence: float) -> tuple:
+def _maybe_promote(path: str, label: str, confidence: float, site: str = "default") -> tuple:
     """
     Auto-promote path to hot-paths if it has been navigated enough times
     by distinct queries within the promotion window.
@@ -142,10 +142,11 @@ def _maybe_promote(path: str, label: str, confidence: float) -> tuple:
                     SELECT COUNT(DISTINCT raw_query)
                     FROM nav_navigate_log
                     WHERE navigated_path = %s
+                      AND site_id = %s
                       AND created_at >= %s
                       AND confidence >= %s
                     """,
-                    (path, window_start, PROMOTE_MIN_CONFIDENCE),
+                    (path, site, window_start, PROMOTE_MIN_CONFIDENCE),
                 )
                 count = cur.fetchone()[0]
     except Exception as exc:
@@ -163,12 +164,12 @@ def _maybe_promote(path: str, label: str, confidence: float) -> tuple:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO nav_hot_paths (path, label, aliases, pinned)
-                    VALUES (%s, %s, '{}', false)
-                    ON CONFLICT (path) DO UPDATE
+                    INSERT INTO nav_hot_paths (site_id, path, label, aliases, pinned)
+                    VALUES (%s, %s, %s, '{}', false)
+                    ON CONFLICT (site_id, path) DO UPDATE
                         SET label = EXCLUDED.label, updated_at = now()
                     """,
-                    (path, label),
+                    (site, path, label),
                 )
             conn.commit()
         logger.info("auto-promoted %s to hot-paths (unique_queries=%d)", path, count)

@@ -26,11 +26,11 @@ MIN_RATIO = 0.78
 MIN_TOKEN_LEN = 4
 VOCAB_TTL_SECONDS = 600
 
-_vocab: Optional[frozenset] = None
-_vocab_loaded_at: float = 0.0
+_vocab: dict = {}          # site -> frozenset
+_vocab_loaded_at: dict = {}  # site -> monotonic ts
 
 
-def _build_vocab() -> frozenset:
+def _build_vocab(site: str) -> frozenset:
     """Collect every searchable word from nav_index + the synonym map."""
     words = set()
     for k, vals in SYNONYMS.items():
@@ -43,8 +43,9 @@ def _build_vocab() -> frozenset:
                     """
                     SELECT lower(label || ' ' || coalesce(description,'') || ' '
                                  || coalesce(array_to_string(tags,' '),''))
-                    FROM nav_index
-                    """
+                    FROM nav_index WHERE site_id = %s
+                    """,
+                    (site,),
                 )
                 for (text,) in cur.fetchall():
                     words.update(w for w in re.findall(r"[a-z]+", text) if len(w) >= 3)
@@ -53,17 +54,16 @@ def _build_vocab() -> frozenset:
     return frozenset(w for w in words if w not in STOPWORDS)
 
 
-def get_vocab() -> frozenset:
-    """Cached vocabulary, rebuilt at most every VOCAB_TTL_SECONDS."""
-    global _vocab, _vocab_loaded_at
+def get_vocab(site: str = "default") -> frozenset:
+    """Cached per-site vocabulary, rebuilt at most every VOCAB_TTL_SECONDS."""
     now = time.monotonic()
-    if _vocab is None or now - _vocab_loaded_at > VOCAB_TTL_SECONDS:
-        _vocab = _build_vocab()
-        _vocab_loaded_at = now
-    return _vocab
+    if site not in _vocab or now - _vocab_loaded_at.get(site, 0) > VOCAB_TTL_SECONDS:
+        _vocab[site] = _build_vocab(site)
+        _vocab_loaded_at[site] = now
+    return _vocab[site]
 
 
-def correct_word(word: str) -> str:
+def correct_word(word: str, site: str = "default") -> str:
     """Return the closest vocabulary word, or the word unchanged.
 
     Known words, stopwords, short tokens, and numbers pass through untouched.
@@ -71,7 +71,7 @@ def correct_word(word: str) -> str:
     w = word.lower()
     if len(w) < MIN_TOKEN_LEN or w in STOPWORDS or any(c.isdigit() for c in w):
         return word
-    vocab = get_vocab()
+    vocab = get_vocab(site)
     if w in vocab:
         return word
     best, best_ratio = None, MIN_RATIO
@@ -85,10 +85,10 @@ def correct_word(word: str) -> str:
     return best if best else word
 
 
-def correct_query(query: str) -> str:
+def correct_query(query: str, site: str = "default") -> str:
     """Correct each word of a query; preserves word order and unknown words."""
     parts = re.findall(r"[a-z0-9]+", (query or "").lower())
     if not parts:
         return query
-    corrected = [correct_word(p) for p in parts]
+    corrected = [correct_word(p, site) for p in parts]
     return " ".join(corrected)

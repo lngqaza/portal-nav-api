@@ -49,7 +49,11 @@ def encode(text: str) -> Optional[np.ndarray]:
         return None
 
 
-def search(query: str, top_k: int = 10) -> List[EmbeddingResult]:
+def search(query: str, top_k: int = 10, scope: list = None) -> List[EmbeddingResult]:
+    """Cosine search across the key's site scope. Results from sites other
+    than the home site (scope[0]) are penalised by CROSS_SITE_PENALTY so
+    shared content is findable but the home site's pages win ties."""
+    scope = scope or ["default"]
     vec = encode(query)
     if vec is None:
         return []
@@ -60,13 +64,14 @@ def search(query: str, top_k: int = 10) -> List[EmbeddingResult]:
                 cur.execute(
                     """
                     SELECT path, label, description,
-                           1 - (embedding <=> %s::vector) AS score
+                           (1 - (embedding <=> %s::vector))
+                             * CASE WHEN site_id = %s THEN 1.0 ELSE %s END AS score
                     FROM nav_index
-                    WHERE embedding IS NOT NULL
-                    ORDER BY embedding <=> %s::vector
+                    WHERE embedding IS NOT NULL AND site_id = ANY(%s)
+                    ORDER BY score DESC
                     LIMIT %s
                     """,
-                    (vec_str, vec_str, top_k),
+                    (vec_str, scope[0], settings.CROSS_SITE_PENALTY, scope, top_k),
                 )
                 return [
                     EmbeddingResult(path=r[0], label=r[1], description=r[2] or "", score=float(r[3]))
@@ -77,7 +82,7 @@ def search(query: str, top_k: int = 10) -> List[EmbeddingResult]:
         return []
 
 
-def index_page(path: str, label: str, description: str, tags: List[str]):
+def index_page(path: str, label: str, description: str, tags: List[str], site: str = "default"):
     vec = encode(f"{label} {description} {' '.join(tags or [])}")
     if vec is None:
         logger.warning("Cannot embed %s — model not loaded", path)
@@ -87,11 +92,11 @@ def index_page(path: str, label: str, description: str, tags: List[str]):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO nav_index (path, label, description, tags, embedding)
-                VALUES (%s,%s,%s,%s,%s::vector)
-                ON CONFLICT (path) DO UPDATE
+                INSERT INTO nav_index (site_id, path, label, description, tags, embedding)
+                VALUES (%s,%s,%s,%s,%s,%s::vector)
+                ON CONFLICT (site_id, path) DO UPDATE
                   SET label=%s, description=%s, tags=%s, embedding=%s::vector
                 """,
-                (path, label, description, tags, vec_str, label, description, tags, vec_str),
+                (site, path, label, description, tags, vec_str, label, description, tags, vec_str),
             )
         conn.commit()

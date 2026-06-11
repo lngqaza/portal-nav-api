@@ -24,15 +24,17 @@ def _sim(q: str, qn: str, target: str) -> float:
     return max(Levenshtein.ratio(q, t), Levenshtein.ratio(qn, _norm(t)))
 
 
-def lookup(query: str) -> Optional[HotPathResult]:
+def lookup(query: str, scope: list = None) -> Optional[HotPathResult]:
+    scope = scope or ["default"]
     q = query.lower().strip()
     qn = _norm(q) or q
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, path, label, aliases, hit_count, last_hit_at, pinned
+                SELECT id, path, label, aliases, hit_count, last_hit_at, pinned, site_id
                 FROM nav_hot_paths
+                WHERE site_id = ANY(%s)
                 ORDER BY (
                     hit_count
                     * CASE WHEN last_hit_at > now() - interval '30 days' THEN 1.0 ELSE 0.5 END
@@ -40,7 +42,7 @@ def lookup(query: str) -> Optional[HotPathResult]:
                 ) DESC
                 LIMIT %s
                 """,
-                (settings.MAX_HOT_PATHS,),
+                (scope, settings.MAX_HOT_PATHS),
             )
             rows = cur.fetchall()
 
@@ -60,6 +62,8 @@ def lookup(query: str) -> Optional[HotPathResult]:
         # 0.4/0.4/0.2 split capped a perfect alias at ~0.65 when the label
         # differed, silently disabling phrase learning.
         score = 0.8 * max(lev_label, lev_alias) + 0.2 * rank_pct
+        if row[7] != scope[0]:
+            score *= settings.CROSS_SITE_PENALTY  # home-site results win ties
 
         if score > best_score:
             best_score, best_row = score, row
@@ -86,13 +90,13 @@ def _increment_hit(path_id: str):
         logger.warning("hit increment failed: %s", e)
 
 
-def record_miss(query: str):
+def record_miss(query: str, site: str = "default"):
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO nav_query_log (raw_query,layer_used,confidence,response_ms) VALUES (%s,'MISS',0.0,0)",
-                    (query[:500],),
+                    "INSERT INTO nav_query_log (raw_query,layer_used,confidence,response_ms,site_id) VALUES (%s,'MISS',0.0,0,%s)",
+                    (query[:500], site),
                 )
             conn.commit()
     except Exception as e:
@@ -134,9 +138,9 @@ def upsert_path(data: dict) -> dict:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO nav_hot_paths (path, label, aliases, pinned)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (path) DO UPDATE
+                INSERT INTO nav_hot_paths (site_id, path, label, aliases, pinned)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (site_id, path) DO UPDATE
                     SET label      = EXCLUDED.label,
                         aliases    = EXCLUDED.aliases,
                         pinned     = EXCLUDED.pinned,
@@ -144,6 +148,7 @@ def upsert_path(data: dict) -> dict:
                 RETURNING id, path, label
                 """,
                 (
+                    data.get("site", "default"),
                     data["path"],
                     data["label"],
                     data.get("aliases", []),

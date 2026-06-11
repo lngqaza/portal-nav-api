@@ -177,20 +177,36 @@ def _run_migrations():
 
     -- nav_hot_paths.path must be unique — upsert_path depends on one row per path.
     -- Idempotent: only adds the constraint if it does not already exist.
-    DO $$ BEGIN
-        IF NOT EXISTS (
-            SELECT 1 FROM pg_constraint
-            WHERE conname = 'uq_hot_paths_path'
-              AND conrelid = 'nav_hot_paths'::regclass
-        ) THEN
-            ALTER TABLE nav_hot_paths
-                ADD CONSTRAINT uq_hot_paths_path UNIQUE (path);
-        END IF;
-    END $$;
+    -- (uq_hot_paths_path was superseded by uq_hot_paths_site_path below —
+    -- the old single-column unique is dropped in the multi-tenancy block.)
 
     -- Self-discovery dedup: hash of last-indexed content per page so
     -- re-visits skip re-embedding unless the page changed.
     ALTER TABLE nav_index ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);
+
+    -- Multi-tenancy: every row belongs to a site (tenant), derived from the
+    -- API key at request time. Pre-existing rows keep the 'default' site so
+    -- the original portal needs no data migration. Uniqueness moves from
+    -- (path) to (site_id, path) so different sites can share path names.
+    ALTER TABLE nav_index        ADD COLUMN IF NOT EXISTS site_id VARCHAR(64) NOT NULL DEFAULT 'default';
+    ALTER TABLE nav_hot_paths    ADD COLUMN IF NOT EXISTS site_id VARCHAR(64) NOT NULL DEFAULT 'default';
+    ALTER TABLE nav_query_log    ADD COLUMN IF NOT EXISTS site_id VARCHAR(64) NOT NULL DEFAULT 'default';
+    ALTER TABLE nav_navigate_log ADD COLUMN IF NOT EXISTS site_id VARCHAR(64) NOT NULL DEFAULT 'default';
+
+    DO $$ BEGIN
+        ALTER TABLE nav_index     DROP CONSTRAINT IF EXISTS nav_index_path_key;
+        ALTER TABLE nav_hot_paths DROP CONSTRAINT IF EXISTS uq_hot_paths_path;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'uq_nav_index_site_path'
+        ) THEN
+            ALTER TABLE nav_index ADD CONSTRAINT uq_nav_index_site_path UNIQUE (site_id, path);
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'uq_hot_paths_site_path'
+        ) THEN
+            ALTER TABLE nav_hot_paths ADD CONSTRAINT uq_hot_paths_site_path UNIQUE (site_id, path);
+        END IF;
+    END $$;
 
     -- nav_query_log.layer_used must be a valid cascade level.
     -- Recreated idempotently: L3 (keyword fallback) and L4 (weak candidates)
