@@ -1,6 +1,17 @@
 {
   "permissions": {
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "mcp__Claude_in_Chrome__*",
+      "mcp__computer-use__*",
+      "mcp__ccd_session__*"
+    ]
   },
   "skipDangerousModePermissionPrompt": true
 }

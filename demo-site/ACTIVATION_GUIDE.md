@@ -79,6 +79,8 @@ for the template. Or point `/admin/crawl` at the site's `sitemap.xml`.
 | `data-discover` | `on` | Set `off` to disable self-discovery on a page |
 | `data-cache-version` | `1` | Bump after a site restructure to clear visitors' local cache |
 
-> **Note (current limitation):** all sites share one page index, so two sites
-> must not use identical paths (e.g. both having `/index.html`). Per-site
-> index separation is the next planned enhancement.
+> **Multi-tenancy:** each API key is scoped to one or more sites. The key format
+> is `key:siteA` (single site) or `key:siteA|siteB` (cross-site, home site first).
+> Results from a non-home site are penalised ×0.85 so the user's own site always
+> ranks first. Set `CROSS_SITE_PENALTY` (0–1) in Lambda env to tune the penalty.
+> Different sites may safely share identical paths (e.g. both having `/index.html`).
