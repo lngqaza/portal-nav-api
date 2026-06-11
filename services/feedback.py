@@ -12,22 +12,15 @@ Auto-promotion logic:
   updated (label refreshed, hit_count preserved).
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import Levenshtein
 
+from core.config import settings
 from core.db import get_conn
 from services.intent import intent_core
 
 logger = logging.getLogger(__name__)
-
-# ── Tuning constants ─────────────────────────────────────────────────────────
-PROMOTE_UNIQUE_QUERIES = 3    # distinct queries that led to this path
-PROMOTE_WINDOW_DAYS    = 7    # within this rolling window
-PROMOTE_MIN_CONFIDENCE = 0.60 # only promote results users actually chose
-MAX_ALIASES            = 12   # learned phrasings kept per hot path
-ALIAS_MAX_LEN          = 60   # ignore essay-length queries
-ALIAS_DUP_RATIO        = 0.90 # skip aliases this similar to an existing one
 
 
 def record_navigation(query: str, path: str, label: str, confidence: float, site: str = "default") -> dict:
@@ -82,7 +75,7 @@ def _learn_alias(path: str, label: str, query: str, site: str = "default") -> bo
     Returns True if a new alias was stored.
     """
     core = intent_core(query)
-    if not core or len(core) > ALIAS_MAX_LEN:
+    if not core or len(core) > settings.ALIAS_MAX_LEN:
         return False
     if core == (label or "").lower().strip():
         return False  # the label itself already matches at L0
@@ -93,9 +86,9 @@ def _learn_alias(path: str, label: str, query: str, site: str = "default") -> bo
                 row = cur.fetchone()
                 if row:
                     aliases = row[1] or []
-                    if any(Levenshtein.ratio(core, a.lower()) >= ALIAS_DUP_RATIO for a in aliases):
+                    if any(Levenshtein.ratio(core, a.lower()) >= settings.ALIAS_DUP_RATIO for a in aliases):
                         return False
-                    aliases = (aliases + [core])[-MAX_ALIASES:]
+                    aliases = (aliases + [core])[-settings.MAX_ALIASES:]
                     cur.execute(
                         "UPDATE nav_hot_paths SET aliases = %s, updated_at = now() WHERE id = %s",
                         (aliases, row[0]),
@@ -130,10 +123,12 @@ def _maybe_promote(path: str, label: str, confidence: float, site: str = "defaul
     Returns:
         Tuple of (promoted: bool, unique_query_count: int).
     """
-    if confidence < PROMOTE_MIN_CONFIDENCE:
+    if confidence < settings.PROMOTE_MIN_CONFIDENCE:
         return False, 0
 
-    window_start = datetime.utcnow() - timedelta(days=PROMOTE_WINDOW_DAYS)
+    window_start = datetime.now(timezone.utc) - timedelta(days=settings.PROMOTE_WINDOW_DAYS)
+    # Single connection: count + conditional upsert in one transaction to
+    # eliminate the two-connection race that could double-promote.
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -146,22 +141,14 @@ def _maybe_promote(path: str, label: str, confidence: float, site: str = "defaul
                       AND created_at >= %s
                       AND confidence >= %s
                     """,
-                    (path, site, window_start, PROMOTE_MIN_CONFIDENCE),
+                    (path, site, window_start, settings.PROMOTE_MIN_CONFIDENCE),
                 )
                 count = cur.fetchone()[0]
-    except Exception as exc:
-        logger.warning("_maybe_promote query failed: %s", exc)
-        return False, 0
-
-    if count < PROMOTE_UNIQUE_QUERIES:
-        return False, count
-
-    # Promote — insert if absent, refresh only the label if present.
-    # Must NOT overwrite aliases: _learn_alias accumulates learned phrasings
-    # on this row and a blanket upsert would wipe them.
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
+                if count < settings.PROMOTE_UNIQUE_QUERIES:
+                    return False, count
+                # Promote — insert if absent, refresh only the label if present.
+                # Must NOT overwrite aliases: _learn_alias accumulates learned
+                # phrasings and a blanket upsert would wipe them.
                 cur.execute(
                     """
                     INSERT INTO nav_hot_paths (site_id, path, label, aliases, pinned)
@@ -175,8 +162,8 @@ def _maybe_promote(path: str, label: str, confidence: float, site: str = "defaul
         logger.info("auto-promoted %s to hot-paths (unique_queries=%d)", path, count)
         return True, count
     except Exception as exc:
-        logger.warning("auto-promote upsert failed for %s: %s", path, exc)
-        return False, count
+        logger.warning("_maybe_promote failed for %s: %s", path, exc)
+        return False, 0
 
 
 def get_navigation_stats(days: int = 7, site: str = None) -> dict:
@@ -190,7 +177,7 @@ def get_navigation_stats(days: int = 7, site: str = None) -> dict:
     Returns:
         dict with top_paths (list), total_navigations (int), promotion_candidates (list).
     """
-    window_start = datetime.utcnow() - timedelta(days=days)
+    window_start = datetime.now(timezone.utc) - timedelta(days=days)
     # Build parameterised clauses — never interpolate site into the SQL string.
     if site:
         site_filter = "AND site_id = %s"
@@ -245,7 +232,7 @@ def get_navigation_stats(days: int = 7, site: str = None) -> dict:
                         ORDER BY uq DESC
                         LIMIT 10
                         """,
-                        (window_start, site, PROMOTE_MIN_CONFIDENCE),
+                        (window_start, site, settings.PROMOTE_MIN_CONFIDENCE),
                     )
                 else:
                     cur.execute(
@@ -262,11 +249,11 @@ def get_navigation_stats(days: int = 7, site: str = None) -> dict:
                         ORDER BY uq DESC
                         LIMIT 10
                         """,
-                        (window_start, PROMOTE_MIN_CONFIDENCE),
+                        (window_start, settings.PROMOTE_MIN_CONFIDENCE),
                     )
                 candidates = [
                     {"path": r[0], "label": r[1], "unique_queries": r[2],
-                     "needed_for_promotion": max(0, PROMOTE_UNIQUE_QUERIES - r[2])}
+                     "needed_for_promotion": max(0, settings.PROMOTE_UNIQUE_QUERIES - r[2])}
                     for r in cur.fetchall()
                 ]
     except Exception as exc:

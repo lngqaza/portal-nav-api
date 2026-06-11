@@ -37,12 +37,14 @@ jobs:
       - name: Run pytest (unit — no DB, no ONNX)
         # DATABASE_URL intentionally absent: tests that need RDS/ONNX skip with
         # explicit integration-pending[rds/onnx] reasons. Zero failures expected.
+        # set -o pipefail propagates pytest's exit code through tee so a test
+        # failure makes this step fail (tee alone swallows the non-zero exit).
         env:
           API_KEYS: ${{ secrets.NAV_API_KEYS }}
           ADMIN_TOKEN: ${{ secrets.NAV_ADMIN_TOKEN }}
         run: |
+          set -o pipefail
           python -m pytest tests/invariants/ -v --tb=short 2>&1 | tee pytest-unit.log
-          tail -1 pytest-unit.log
 
       - name: Upload pytest log
         if: always()
@@ -140,7 +142,10 @@ jobs:
         env:
           IMAGE_URI: ${{ needs.build.outputs.image_uri }}
         run: |
-          ENV_VARS=$(python3 -c "import json; print(json.dumps({'Variables': {'DATABASE_URL': '${{ secrets.NAV_DATABASE_URL }}', 'API_KEYS': '${{ secrets.NAV_API_KEYS }}', 'ADMIN_TOKEN': '${{ secrets.NAV_ADMIN_TOKEN }}', 'SERVICE_VERSION': '${{ github.sha }}'} }))")
+          if [ -z "${{ secrets.NAV_CORS_ORIGINS }}" ]; then
+            echo "::warning::NAV_CORS_ORIGINS secret is not set — CORS defaults to open (*). Set this secret to a comma-separated allowlist for production."
+          fi
+          ENV_VARS=$(python3 -c "import json; print(json.dumps({'Variables': {'DATABASE_URL': '${{ secrets.NAV_DATABASE_URL }}', 'API_KEYS': '${{ secrets.NAV_API_KEYS }}', 'ADMIN_TOKEN': '${{ secrets.NAV_ADMIN_TOKEN }}', 'SERVICE_VERSION': '${{ github.sha }}', 'CORS_ORIGINS': '${{ secrets.NAV_CORS_ORIGINS }}'} }))")
 
           EXISTS=$(aws lambda get-function --function-name $FUNCTION_NAME \
             --query 'Configuration.FunctionArn' --output text 2>/dev/null || echo "")
@@ -173,9 +178,10 @@ jobs:
             aws lambda wait function-updated --function-name $FUNCTION_NAME
           fi
 
-          # ── Publish version + update 'live' alias ──────────────────────────
+          # ── Publish version ────────────────────────────────────────────────
           # Provisioned concurrency requires a named alias (not $LATEST).
-          # Every deploy publishes an immutable version and advances the alias.
+          # Every deploy publishes an immutable version; alias is advanced only
+          # AFTER the smoke test passes so a bad image never takes live traffic.
           echo "Publishing Lambda version..."
           VERSION=$(aws lambda publish-version \
             --function-name $FUNCTION_NAME \
@@ -183,13 +189,31 @@ jobs:
           echo "Published version $VERSION"
 
           # Capture the current alias version BEFORE advancing it so we can
-          # roll back if integration tests fail.
+          # roll back if integration tests fail. Emitted to GITHUB_OUTPUT here
+          # so it is available even if the alias-update step below fails.
           PREV_VERSION=$(aws lambda get-alias --function-name $FUNCTION_NAME \
             --name live --query 'FunctionVersion' --output text 2>/dev/null || echo "")
           echo "PREV_VERSION=$PREV_VERSION" >> $GITHUB_ENV
           echo "DEPLOY_VERSION=$VERSION" >> $GITHUB_ENV
           echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
 
+          # ── Smoke test BEFORE advancing alias ─────────────────────────────
+          # Test the published version directly. If broken, alias stays on the
+          # previous good version and we abort — no live traffic on a bad image.
+          echo "Smoke-testing /health on version $VERSION before alias promotion..."
+          HEALTH=$(aws lambda invoke \
+            --function-name $FUNCTION_NAME:$VERSION \
+            --payload '{"rawPath":"/health","requestContext":{"http":{"method":"GET"}}}' \
+            --query 'StatusCode' --output text \
+            /tmp/health-response.json 2>&1 || echo "INVOKE_FAILED")
+          BODY=$(cat /tmp/health-response.json 2>/dev/null || echo "{}")
+          echo "  Lambda status: $HEALTH  body: $BODY"
+          if [ "$HEALTH" != "200" ]; then
+            echo "::error::Smoke test failed — /health returned $HEALTH. Alias NOT advanced."
+            exit 1
+          fi
+
+          # ── Advance 'live' alias — only reached when smoke passed ──────────
           ALIAS_ARN=$(aws lambda get-alias --function-name $FUNCTION_NAME \
             --name live --query 'AliasArn' --output text 2>/dev/null || echo "")
           if [ -z "$ALIAS_ARN" ]; then
@@ -201,7 +225,6 @@ jobs:
           else
             # Must delete PC before updating alias version — AWS rejects
             # put-provisioned-concurrency-config while an alias is mid-transition
-            # ("Alias with weights can not be used with Provisioned Concurrency")
             echo "Deleting PC config before alias update..."
             aws lambda delete-provisioned-concurrency-config \
               --function-name $FUNCTION_NAME --qualifier live 2>/dev/null || true
@@ -212,22 +235,6 @@ jobs:
               --query 'AliasArn' --output text)
           fi
           echo "ALIAS_ARN=$ALIAS_ARN" >> $GITHUB_ENV
-
-          # ── Smoke test: /health must return 200 before PC is set ──────────────
-          # If the new image is broken, we fail here rather than locking a bad
-          # version into provisioned concurrency (which makes rollback slower).
-          echo "Smoke-testing /health on new version $VERSION..."
-          HEALTH=$(aws lambda invoke \
-            --function-name $FUNCTION_NAME:$VERSION \
-            --payload '{"rawPath":"/health","requestContext":{"http":{"method":"GET"}}}' \
-            --query 'StatusCode' --output text \
-            /tmp/health-response.json 2>&1 || echo "INVOKE_FAILED")
-          BODY=$(cat /tmp/health-response.json 2>/dev/null || echo "{}")
-          echo "  Lambda status: $HEALTH  body: $BODY"
-          if [ "$HEALTH" != "200" ]; then
-            echo "::error::Smoke test failed — /health returned $HEALTH. Deploy aborted."
-            exit 1
-          fi
 
           # ── Provisioned concurrency = 1 ────────────────────────────────────
           # Keeps 1 warm ONNX instance; eliminates the ~15s cold-start p90
@@ -383,8 +390,8 @@ jobs:
           API_KEYS: ${{ secrets.NAV_API_KEYS }}
           ADMIN_TOKEN: ${{ secrets.NAV_ADMIN_TOKEN }}
         run: |
+          set -o pipefail
           python -m pytest tests/invariants/ -v --tb=short 2>&1 | tee pytest-integration.log
-          tail -1 pytest-integration.log
 
       - name: Upload pytest log
         if: always()

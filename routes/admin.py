@@ -1,7 +1,9 @@
 """Admin route handlers — CRUD for hot-paths, index, stats, config."""
+import ipaddress
 import json
 import re
-from datetime import datetime, timedelta
+import urllib.parse
+from datetime import datetime, timedelta, timezone
 
 from core.db import get_conn
 from core.config import settings
@@ -13,6 +15,10 @@ from services.analytics import get_analytics
 from services.miss_mining import get_miss_report
 
 _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+_BLOCKED_HOSTS = frozenset([
+    '169.254.169.254', 'metadata.google.internal',
+    'instance-data', 'localhost', '0.0.0.0',
+])
 
 
 def _validate_uuid(value: str, field: str = "id") -> str:
@@ -22,10 +28,51 @@ def _validate_uuid(value: str, field: str = "id") -> str:
     return value
 
 
+def _safe_int(value, default: int) -> int:
+    """Parse value as int, returning default on failure."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _validate_sitemap_url(url: str) -> None:
+    """Raise ValueError if url is not a safe public HTTPS URL.
+
+    Blocks RFC-1918 addresses, loopback, link-local, and known cloud metadata
+    endpoints to prevent SSRF attacks. Admin token auth is not sufficient alone
+    because a compromised admin token would allow credential exfil via crawl.
+    """
+    if not url.lower().startswith('https://'):
+        raise ValueError("sitemap_url must use HTTPS")
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:
+        raise ValueError("sitemap_url is not a valid URL")
+    host = (parsed.hostname or '').lower()
+    if not host:
+        raise ValueError("sitemap_url has no hostname")
+    if host in _BLOCKED_HOSTS:
+        raise ValueError(f"sitemap_url hostname not permitted: {host!r}")
+    try:
+        addr = ipaddress.ip_address(host)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise ValueError(f"sitemap_url resolves to a reserved IP: {host!r}")
+    except ValueError as exc:
+        if any(w in str(exc) for w in ('private', 'loopback', 'link_local', 'reserved', 'permitted')):
+            raise
+        # Not an IP literal — hostname check passed
+
+
 def _r(status, data):
     return {
         "statusCode": status,
-        "headers": {"Content-Type": "application/json"},
+        "headers": {
+            "Content-Type": "application/json",
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Cache-Control": "no-store",
+        },
         "body": json.dumps(data, default=str),
     }
 
@@ -35,7 +82,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     # ── Hot paths ───────────────────────────────────────────────────────────
     if path == "/admin/hot-paths" and method == "GET":
         site = params.get("site") or None
-        return _r(200, get_top_paths(int(params.get("limit", 70)), site=site))
+        return _r(200, get_top_paths(_safe_int(params.get("limit", 70), 70), site=site))
 
     if path == "/admin/hot-paths" and method == "POST":
         return _r(200, upsert_path(body))
@@ -68,17 +115,26 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
 
     if path == "/admin/hot-paths/evict" and method == "POST":
         site = body.get("site") or None
-        return _r(200, {"evicted": evict_cold_paths(int(body.get("min_hits_per_week", 50)), site=site)})
+        return _r(200, {"evicted": evict_cold_paths(_safe_int(body.get("min_hits_per_week", 50), 50), site=site)})
 
     # ── Index ────────────────────────────────────────────────────────────────
     if path == "/admin/index" and method == "GET":
-        limit, offset = int(params.get("limit", 50)), int(params.get("offset", 0))
+        limit  = _safe_int(params.get("limit", 50), 50)
+        offset = _safe_int(params.get("offset", 0), 0)
+        site   = params.get("site") or None
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT id,path,label,description,tags FROM nav_index LIMIT %s OFFSET %s",
-                    (limit, offset),
-                )
+                if site:
+                    cur.execute(
+                        "SELECT id,path,label,description,tags FROM nav_index "
+                        "WHERE site_id=%s LIMIT %s OFFSET %s",
+                        (site, limit, offset),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT id,path,label,description,tags FROM nav_index LIMIT %s OFFSET %s",
+                        (limit, offset),
+                    )
                 cols = [d[0] for d in cur.description]
                 rows = [dict(zip(cols, r)) for r in cur.fetchall()]
         return _r(200, rows)
@@ -106,7 +162,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
 
     # ── Stats ────────────────────────────────────────────────────────────────
     if path == "/admin/stats" and method == "GET":
-        since = datetime.utcnow() - timedelta(hours=24)
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -176,27 +232,31 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         sitemap_url = body.get("sitemap_url", "").strip()
         if not sitemap_url:
             return _r(400, {"error": "sitemap_url is required"})
+        try:
+            _validate_sitemap_url(sitemap_url)
+        except ValueError as exc:
+            return _r(400, {"error": str(exc)})
         result = crawl_sitemap(sitemap_url, body.get("label_prefix", ""))
         return _r(200, result)
 
     # ── Navigation feedback stats ─────────────────────────────────────────────
     # GET /admin/feedback?days=7
     if path == "/admin/feedback" and method == "GET":
-        days = int(params.get("days", 7))
+        days = _safe_int(params.get("days", 7), 7)
         site = params.get("site") or None
         return _r(200, get_navigation_stats(days, site))
 
     # ── Analytics — CTR, daily volume, layer breakdown, top queries/pages ─────
     # GET /admin/analytics?days=7&site=lumo
     if path == "/admin/analytics" and method == "GET":
-        days = int(params.get("days", 7))
+        days = _safe_int(params.get("days", 7), 7)
         site = params.get("site") or None
         return _r(200, get_analytics(days, site))
 
     # ── Miss-mining report ────────────────────────────────────────────────────
     # GET /admin/miss-report?days=7&site=lumo
     if path == "/admin/miss-report" and method == "GET":
-        days = int(params.get("days", 7))
+        days = _safe_int(params.get("days", 7), 7)
         site = params.get("site") or None
         return _r(200, get_miss_report(days, site))
 

@@ -5,7 +5,16 @@ from services.feedback import record_navigation
 
 
 def _r(status, data):
-    return {"statusCode": status, "headers": {"Content-Type": "application/json"}, "body": json.dumps(data)}
+    return {
+        "statusCode": status,
+        "headers": {
+            "Content-Type": "application/json",
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Cache-Control": "no-store",
+        },
+        "body": json.dumps(data),
+    }
 
 
 def handle_navigate(body: dict) -> dict:
@@ -27,10 +36,13 @@ def handle_navigate(body: dict) -> dict:
     Returns:
         Lambda proxy response with recorded/promoted flags.
     """
-    query      = str(body.get("query",      "")).strip()
-    path       = str(body.get("path",       "")).strip()
-    label      = str(body.get("label",      "")).strip()
-    confidence = float(body.get("confidence", 0.0))
+    query      = str(body.get("query",      "")).strip()[:500]
+    path       = str(body.get("path",       "")).strip()[:500]
+    label      = str(body.get("label",      "")).strip()[:200]
+    try:
+        confidence = max(0.0, min(float(body.get("confidence", 0.0)), 1.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
 
     if not query or not path or not label:
         return _r(400, {"error": "query, path, and label are required"})

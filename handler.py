@@ -43,8 +43,12 @@ if os.environ.get("LAMBDA_TASK_ROOT"):
 # CORS origins — comma-separated list from env, defaulting to open for backwards
 # compatibility (widget is embedded in third-party portals we don't control).
 # Set CORS_ORIGINS to a comma-separated allowlist in production where possible.
-_CORS_ORIGINS = set(
-    o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
+_raw_cors = os.environ.get("CORS_ORIGINS", "").strip()
+# Fall back to open CORS only when env var is absent or empty — set
+# CORS_ORIGINS in Lambda env (NAV_CORS_ORIGINS GitHub secret) for production.
+_CORS_ORIGINS = (
+    set(o.strip() for o in _raw_cors.split(",") if o.strip())
+    if _raw_cors else {"*"}
 )
 
 
@@ -101,7 +105,7 @@ def lambda_handler(event, context):
             from routes.query import handle_suggest
             qs = event.get("queryStringParameters") or {}
             # Prefer X-Api-Key header (key in ?k= is visible in access logs).
-            # Fall back to ?k= for backwards-compat with existing widget versions.
+            # ?k= fallback is deprecated — remove after widget v2 ships (TODO sprint-next).
             key = headers.get("x-api-key") or qs.get("k", "")
             scope = resolve_scope(key) or ["default"]
             return handle_suggest(qs.get("q", ""), scope)
@@ -154,6 +158,11 @@ def _body(event):
 def _r(status, data):
     return {
         "statusCode": status,
-        "headers": {"Content-Type": "application/json"},
+        "headers": {
+            "Content-Type": "application/json",
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Cache-Control": "no-store",
+        },
         "body": json.dumps(data),
     }

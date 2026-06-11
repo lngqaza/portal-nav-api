@@ -1,39 +1,87 @@
 import json
+import logging
+from concurrent.futures import ThreadPoolExecutor
+
 from services.query_router import route_query
 from services.hot_path import get_top_paths
 
+logger = logging.getLogger(__name__)
+
+MAX_QUERY_LENGTH = 500
+BATCH_MAX_QUERIES = 20
+
 
 def _r(status, data):
-    return {"statusCode": status, "headers": {"Content-Type": "application/json"}, "body": json.dumps(data)}
+    return {
+        "statusCode": status,
+        "headers": {
+            "Content-Type": "application/json",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+        "body": json.dumps(data),
+    }
 
 
-def handle_query(body: dict, scope: list = None, request_id: str = "-"):
+def handle_query(body: dict, scope: list = None, request_id: str = "-") -> dict:
+    """
+    Route a single navigation query through the L0→MISS cascade.
+
+    Args:
+        body:       Parsed request body; expects 'query' and optional 'context_path'.
+        scope:      Site-id list from the API key.
+        request_id: Lambda request ID for correlation logging.
+
+    Returns:
+        Lambda proxy response with NavigationResult fields.
+    """
     query = str(body.get("query", "")).strip()
     if not query:
         return _r(400, {"error": "query field is required"})
+    if len(query) > MAX_QUERY_LENGTH:
+        return _r(400, {"error": f"query exceeds {MAX_QUERY_LENGTH} character limit"})
     context_path = str(body.get("context_path", "")).strip() or None
     return _r(200, route_query(query, scope, context_path=context_path,
                                request_id=request_id).to_dict())
 
 
-def handle_batch(body: dict, scope: list = None, request_id: str = "-"):
+def handle_batch(body: dict, scope: list = None, request_id: str = "-") -> dict:
+    """
+    Route up to BATCH_MAX_QUERIES queries concurrently.
+
+    Args:
+        body:       Parsed request body; expects 'queries' list.
+        scope:      Site-id list from the API key.
+        request_id: Lambda request ID for correlation logging.
+
+    Returns:
+        Lambda proxy response with list of NavigationResult fields.
+    """
     queries = body.get("queries", [])
     if not queries:
         return _r(400, {"error": "queries field is required"})
-    if len(queries) > 20:
-        return _r(400, {"error": "Maximum 20 queries per batch"})
-    return _r(200, [route_query(str(q), scope, request_id=request_id).to_dict()
-                    for q in queries])
+    if len(queries) > BATCH_MAX_QUERIES:
+        return _r(400, {"error": f"Maximum {BATCH_MAX_QUERIES} queries per batch"})
+
+    def _run(q: str) -> dict:
+        if len(q) > MAX_QUERY_LENGTH:
+            return {"error": "query too long", "layer": "ERROR", "path": None,
+                    "label": None, "confidence": 0.0, "response_ms": 0}
+        return route_query(q, scope, request_id=request_id).to_dict()
+
+    with ThreadPoolExecutor(max_workers=min(len(queries), 5)) as executor:
+        results = list(executor.map(lambda q: _run(str(q)), queries))
+
+    return _r(200, results)
 
 
-def handle_suggest(q: str, scope: list = None):
+def handle_suggest(q: str, scope: list = None) -> dict:
     """
     Returns label-prefix suggestions from nav_index.
     Degrades gracefully to [] when DB is unavailable — suggest must never
     return 5xx, matching the AUTH-05 invariant that it needs no auth and
     always responds 200.
     """
-    import logging
     from core.db import get_conn
     scope = scope or ["default"]
     results = []
@@ -51,6 +99,6 @@ def handle_suggest(q: str, scope: list = None):
                         (scope, f"%{q.lower()}%", f"%{q.lower()}%", scope[0]),
                     )
                     results = [{"path": r[0], "label": r[1]} for r in cur.fetchall()]
-        except Exception as e:
-            logging.getLogger(__name__).warning("suggest DB unavailable, returning []: %s", e)
+        except Exception as exc:
+            logger.warning("suggest DB unavailable, returning []: %s", exc)
     return _r(200, results)

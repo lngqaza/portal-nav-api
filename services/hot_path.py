@@ -28,23 +28,27 @@ def lookup(query: str, scope: list = None) -> Optional[HotPathResult]:
     scope = scope or ["default"]
     q = query.lower().strip()
     qn = _norm(q) or q
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, path, label, aliases, hit_count, last_hit_at, pinned, site_id
-                FROM nav_hot_paths
-                WHERE site_id = ANY(%s)
-                ORDER BY (
-                    hit_count
-                    * CASE WHEN last_hit_at > now() - interval '30 days' THEN 1.0 ELSE 0.5 END
-                    + CASE WHEN pinned THEN 10000 ELSE 0 END
-                ) DESC
-                LIMIT %s
-                """,
-                (scope, settings.MAX_HOT_PATHS),
-            )
-            rows = cur.fetchall()
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, path, label, aliases, hit_count, last_hit_at, pinned, site_id
+                    FROM nav_hot_paths
+                    WHERE site_id = ANY(%s)
+                    ORDER BY (
+                        hit_count
+                        * CASE WHEN last_hit_at > now() - interval '30 days' THEN 1.0 ELSE 0.5 END
+                        + CASE WHEN pinned THEN 10000 ELSE 0 END
+                    ) DESC
+                    LIMIT %s
+                    """,
+                    (scope, settings.MAX_HOT_PATHS),
+                )
+                rows = cur.fetchall()
+    except Exception as exc:
+        logger.warning("hot_path lookup failed: %s", exc)
+        return None
 
     if not rows:
         return None
@@ -100,31 +104,35 @@ def get_top_paths(limit: int = 70, site: str = None) -> list:
                tenants (admin overview only — never use without site in
                production query serving).
     """
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            if site:
-                cur.execute(
-                    """
-                    SELECT id, path, label, aliases, hit_count, last_hit_at, pinned, created_at
-                    FROM nav_hot_paths
-                    WHERE site_id = %s
-                    ORDER BY (hit_count + CASE WHEN pinned THEN 10000 ELSE 0 END) DESC
-                    LIMIT %s
-                    """,
-                    (site, limit),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT id, path, label, aliases, hit_count, last_hit_at, pinned, created_at
-                    FROM nav_hot_paths
-                    ORDER BY (hit_count + CASE WHEN pinned THEN 10000 ELSE 0 END) DESC
-                    LIMIT %s
-                    """,
-                    (limit,),
-                )
-            cols = [d[0] for d in cur.description]
-            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                if site:
+                    cur.execute(
+                        """
+                        SELECT id, path, label, aliases, hit_count, last_hit_at, pinned, created_at
+                        FROM nav_hot_paths
+                        WHERE site_id = %s
+                        ORDER BY (hit_count + CASE WHEN pinned THEN 10000 ELSE 0 END) DESC
+                        LIMIT %s
+                        """,
+                        (site, limit),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT id, path, label, aliases, hit_count, last_hit_at, pinned, created_at
+                        FROM nav_hot_paths
+                        ORDER BY (hit_count + CASE WHEN pinned THEN 10000 ELSE 0 END) DESC
+                        LIMIT %s
+                        """,
+                        (limit,),
+                    )
+                cols = [d[0] for d in cur.description]
+                return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception as exc:
+        logger.warning("get_top_paths failed: %s", exc)
+        return []
 
 
 def upsert_path(data: dict) -> dict:
@@ -142,30 +150,34 @@ def upsert_path(data: dict) -> dict:
     Returns:
         dict with id, path, label of the upserted row.
     """
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO nav_hot_paths (site_id, path, label, aliases, pinned)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (site_id, path) DO UPDATE
-                    SET label      = EXCLUDED.label,
-                        aliases    = EXCLUDED.aliases,
-                        pinned     = EXCLUDED.pinned,
-                        updated_at = now()
-                RETURNING id, path, label
-                """,
-                (
-                    data.get("site", "default"),
-                    data["path"],
-                    data["label"],
-                    data.get("aliases", []),
-                    data.get("pinned", False),
-                ),
-            )
-            row = cur.fetchone()
-        conn.commit()
-    return {"id": str(row[0]), "path": row[1], "label": row[2]}
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO nav_hot_paths (site_id, path, label, aliases, pinned)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (site_id, path) DO UPDATE
+                        SET label      = EXCLUDED.label,
+                            aliases    = EXCLUDED.aliases,
+                            pinned     = EXCLUDED.pinned,
+                            updated_at = now()
+                    RETURNING id, path, label
+                    """,
+                    (
+                        data.get("site", "default"),
+                        data["path"],
+                        data["label"],
+                        data.get("aliases", []),
+                        data.get("pinned", False),
+                    ),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return {"id": str(row[0]), "path": row[1], "label": row[2]}
+    except Exception as exc:
+        logger.warning("upsert_path failed: %s", exc)
+        raise
 
 
 def evict_cold_paths(min_hits_per_week: int = 50, site: str = None) -> int:
@@ -177,29 +189,33 @@ def evict_cold_paths(min_hits_per_week: int = 50, site: str = None) -> int:
         site: When provided, restrict eviction to this tenant. Never evict
               cross-tenant — callers must pass the authenticated site_id.
     """
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            if site:
-                cur.execute(
-                    """
-                    DELETE FROM nav_hot_paths
-                    WHERE site_id = %s
-                      AND pinned = false
-                      AND (last_hit_at IS NULL OR last_hit_at < now() - interval '7 days')
-                      AND hit_count < %s
-                    """,
-                    (site, min_hits_per_week),
-                )
-            else:
-                cur.execute(
-                    """
-                    DELETE FROM nav_hot_paths
-                    WHERE pinned = false
-                      AND (last_hit_at IS NULL OR last_hit_at < now() - interval '7 days')
-                      AND hit_count < %s
-                    """,
-                    (min_hits_per_week,),
-                )
-            deleted = cur.rowcount
-        conn.commit()
-    return deleted
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                if site:
+                    cur.execute(
+                        """
+                        DELETE FROM nav_hot_paths
+                        WHERE site_id = %s
+                          AND pinned = false
+                          AND (last_hit_at IS NULL OR last_hit_at < now() - interval '7 days')
+                          AND hit_count < %s
+                        """,
+                        (site, min_hits_per_week),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        DELETE FROM nav_hot_paths
+                        WHERE pinned = false
+                          AND (last_hit_at IS NULL OR last_hit_at < now() - interval '7 days')
+                          AND hit_count < %s
+                        """,
+                        (min_hits_per_week,),
+                    )
+                deleted = cur.rowcount
+            conn.commit()
+        return deleted
+    except Exception as exc:
+        logger.warning("evict_cold_paths failed: %s", exc)
+        return 0

@@ -3,25 +3,15 @@ Analytics service — click-through rates, daily query volume, layer breakdown,
 top queries and pages.  All reads; no writes.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from core.db import get_conn
 
 logger = logging.getLogger(__name__)
 
-# Sentinel used in parameterised WHERE branches below.
-_NO_SITE = object()
 
-
-def _qlog_params(window_start, site):
-    """Return (site_clause, params) for nav_query_log queries."""
-    if site:
-        return "AND site_id = %s", [window_start, site]
-    return "", [window_start]
-
-
-def _nlog_params(window_start, site):
-    """Return (site_clause, params) for nav_navigate_log queries."""
+def _log_params(window_start, site):
+    """Return (site_clause, params) for any nav_*_log table query."""
     if site:
         return "AND site_id = %s", [window_start, site]
     return "", [window_start]
@@ -38,9 +28,9 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
     Returns:
         dict with keys: daily_queries, layer_breakdown, ctr_pct, top_queries, top_pages.
     """
-    window_start = datetime.utcnow() - timedelta(days=days)
-    q_clause, q_params = _qlog_params(window_start, site)
-    n_clause, n_params = _nlog_params(window_start, site)
+    window_start = datetime.now(timezone.utc) - timedelta(days=days)
+    q_clause, q_params = _log_params(window_start, site)
+    n_clause, n_params = _log_params(window_start, site)
 
     try:
         with get_conn() as conn:

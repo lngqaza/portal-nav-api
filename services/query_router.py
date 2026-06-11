@@ -130,7 +130,8 @@ def route_query(query: str, scope: list = None, context_path: str = None,
         )
 
     # MISS — emit CloudWatch EMF metric for real-time alerting on MISS rate spikes.
-    # EMF is parsed by CloudWatch Logs agent from stdout — zero added latency.
+    # CloudWatch EMF requires structured JSON on stdout — this is intentional,
+    # NOT a debug print. The Logs agent parses it into a custom metric.
     ms = _ms(start)
     print(json.dumps({
         "_aws": {
@@ -205,6 +206,7 @@ def _log(query: str, path: Optional[str], layer: str, confidence: float, ms: int
          site: str = "default", context_path: Optional[str] = None,
          request_id: str = "-"):
     safe_query = _scrub(query)[:500]
+    safe_context = (_scrub(context_path)[:500] if context_path else None)
     logger.info(json.dumps({
         "event": "nav_query",
         "layer": layer,
@@ -220,7 +222,7 @@ def _log(query: str, path: Optional[str], layer: str, confidence: float, ms: int
                     "INSERT INTO nav_query_log "
                     "(raw_query,matched_path,layer_used,confidence,response_ms,site_id,context_path) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                    (safe_query, path, layer, confidence, ms, site, context_path),
+                    (safe_query, path, layer, confidence, ms, site, safe_context),
                 )
             conn.commit()
     except Exception as e:

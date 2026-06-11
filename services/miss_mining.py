@@ -7,19 +7,15 @@ in slightly different ways (e.g. "cant find my policy" / "find my policy").
 Each cluster is ranked by frequency so the highest-impact additions surface first.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import Levenshtein
 
+from core.config import settings
 from core.db import get_conn
 from services.intent import intent_core
 
 logger = logging.getLogger(__name__)
-
-# Two miss queries are the same cluster when their intent cores are >= this similar
-CLUSTER_SIMILARITY = 0.80
-# Minimum occurrences to include a cluster in the report (cuts noise)
-MIN_CLUSTER_COUNT = 1
 
 
 def get_miss_report(days: int = 7, site: str = None) -> dict:
@@ -35,7 +31,7 @@ def get_miss_report(days: int = 7, site: str = None) -> dict:
         clusters is a list of {representative, phrasings, count, suggested_label}
         sorted by frequency descending.
     """
-    window_start = datetime.utcnow() - timedelta(days=days)
+    window_start = datetime.now(timezone.utc) - timedelta(days=days)
     # Parameterised: site_id is always bound as a query parameter, never interpolated.
     # The WHERE clause structure (two variants) is fixed SQL — no user input reaches
     # the string template.
@@ -91,11 +87,11 @@ def get_miss_report(days: int = 7, site: str = None) -> dict:
         for j, (core_j, raw_j, cnt_j) in enumerate(entries):
             if j in used:
                 continue
-            if Levenshtein.ratio(core_i, core_j) >= CLUSTER_SIMILARITY:
+            if Levenshtein.ratio(core_i, core_j) >= settings.CLUSTER_SIMILARITY:
                 members.append((raw_j, cnt_j))
                 total += cnt_j
                 used.add(j)
-        if total < MIN_CLUSTER_COUNT:
+        if total < settings.MIN_CLUSTER_COUNT:
             continue
         # Pick the most frequent phrasing as the representative
         members.sort(key=lambda x: -x[1])

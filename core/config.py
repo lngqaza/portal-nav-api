@@ -55,6 +55,16 @@ class Settings:
     MAX_HOT_PATHS: int = int(os.environ.get("MAX_HOT_PATHS", "70"))
     SERVICE_VERSION: str = os.environ.get("SERVICE_VERSION", "1.0.0")
     LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO")
+    # ── Feedback / promotion tuning ──────────────────────────────────────────
+    PROMOTE_UNIQUE_QUERIES: int = int(os.environ.get("PROMOTE_UNIQUE_QUERIES", "3"))
+    PROMOTE_WINDOW_DAYS: int = int(os.environ.get("PROMOTE_WINDOW_DAYS", "7"))
+    PROMOTE_MIN_CONFIDENCE: float = float(os.environ.get("PROMOTE_MIN_CONFIDENCE", "0.60"))
+    MAX_ALIASES: int = int(os.environ.get("MAX_ALIASES", "12"))
+    ALIAS_MAX_LEN: int = int(os.environ.get("ALIAS_MAX_LEN", "60"))
+    ALIAS_DUP_RATIO: float = float(os.environ.get("ALIAS_DUP_RATIO", "0.90"))
+    # ── Miss-mining tuning ───────────────────────────────────────────────────
+    CLUSTER_SIMILARITY: float = float(os.environ.get("CLUSTER_SIMILARITY", "0.80"))
+    MIN_CLUSTER_COUNT: int = int(os.environ.get("MIN_CLUSTER_COUNT", "1"))
 
 
 settings = Settings()
