@@ -36,6 +36,9 @@ class Settings:
     CROSS_SITE_PENALTY: float = float(os.environ.get("CROSS_SITE_PENALTY", "0.85"))
     # Score multiplier applied to candidates sharing the user's current page segment.
     CONTEXT_BOOST_FACTOR: float = float(os.environ.get("CONTEXT_BOOST_FACTOR", "1.10"))
+    # Fixed confidence score assigned to all L3 keyword fallback results. Kept below
+    # the auto-navigate threshold so the client always presents them as a pick-list.
+    L3_CONFIDENCE: float = float(os.environ.get("L3_CONFIDENCE", "0.50"))
     # Set to "true" to enable L4 weak-candidate fallback (off by default — surfacing
     # low-confidence results can lower perceived quality in production portals).
     L4_ENABLED: bool = os.environ.get("L4_ENABLED", "false").lower() == "true"

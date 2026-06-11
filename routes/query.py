@@ -7,21 +7,23 @@ def _r(status, data):
     return {"statusCode": status, "headers": {"Content-Type": "application/json"}, "body": json.dumps(data)}
 
 
-def handle_query(body: dict, scope: list = None):
+def handle_query(body: dict, scope: list = None, request_id: str = "-"):
     query = str(body.get("query", "")).strip()
     if not query:
         return _r(400, {"error": "query field is required"})
     context_path = str(body.get("context_path", "")).strip() or None
-    return _r(200, route_query(query, scope, context_path=context_path).to_dict())
+    return _r(200, route_query(query, scope, context_path=context_path,
+                               request_id=request_id).to_dict())
 
 
-def handle_batch(body: dict, scope: list = None):
+def handle_batch(body: dict, scope: list = None, request_id: str = "-"):
     queries = body.get("queries", [])
     if not queries:
         return _r(400, {"error": "queries field is required"})
     if len(queries) > 20:
         return _r(400, {"error": "Maximum 20 queries per batch"})
-    return _r(200, [route_query(str(q), scope).to_dict() for q in queries])
+    return _r(200, [route_query(str(q), scope, request_id=request_id).to_dict()
+                    for q in queries])
 
 
 def handle_suggest(q: str, scope: list = None):

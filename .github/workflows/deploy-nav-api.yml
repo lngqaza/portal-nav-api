@@ -104,6 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       api_url: ${{ steps.api.outputs.api_url }}
+      prev_version: ${{ steps.deploy_lambda.outputs.prev_version }}
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -135,6 +136,7 @@ jobs:
           echo "ROLE_ARN=$ROLE_ARN" >> $GITHUB_ENV
 
       - name: Deploy Lambda
+        id: deploy_lambda
         env:
           IMAGE_URI: ${{ needs.build.outputs.image_uri }}
         run: |
@@ -179,6 +181,14 @@ jobs:
             --function-name $FUNCTION_NAME \
             --query 'Version' --output text)
           echo "Published version $VERSION"
+
+          # Capture the current alias version BEFORE advancing it so we can
+          # roll back if integration tests fail.
+          PREV_VERSION=$(aws lambda get-alias --function-name $FUNCTION_NAME \
+            --name live --query 'FunctionVersion' --output text 2>/dev/null || echo "")
+          echo "PREV_VERSION=$PREV_VERSION" >> $GITHUB_ENV
+          echo "DEPLOY_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
 
           ALIAS_ARN=$(aws lambda get-alias --function-name $FUNCTION_NAME \
             --name live --query 'AliasArn' --output text 2>/dev/null || echo "")
@@ -422,3 +432,41 @@ jobs:
         with:
           name: jest-wave3-log
           path: tests/wave3/jest-wave3.log
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 5: Rollback — runs ONLY when integration tests fail.
+  # Advances the 'live' alias back to the previous version so production
+  # traffic is never left on a broken image.
+  # ──────────────────────────────────────────────────────────────────────────
+  rollback:
+    name: "Rollback on test failure"
+    needs: [deploy, test-integration-python, test-integration-wave3]
+    if: >
+      always() &&
+      (needs.test-integration-python.result == 'failure' ||
+       needs.test-integration-wave3.result   == 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Roll back 'live' alias to previous version
+        env:
+          FUNCTION_NAME: portal-nav-api
+          PREV_VERSION: ${{ needs.deploy.outputs.prev_version }}
+        run: |
+          if [ -z "$PREV_VERSION" ] || [ "$PREV_VERSION" = "None" ]; then
+            echo "No previous version recorded — cannot roll back automatically."
+            exit 1
+          fi
+          echo "::warning::Integration tests failed. Rolling back 'live' alias to version $PREV_VERSION."
+          aws lambda delete-provisioned-concurrency-config \
+            --function-name $FUNCTION_NAME --qualifier live 2>/dev/null || true
+          aws lambda update-alias \
+            --function-name $FUNCTION_NAME \
+            --name live \
+            --function-version "$PREV_VERSION"
+          echo "Rollback complete — 'live' now points to version $PREV_VERSION."

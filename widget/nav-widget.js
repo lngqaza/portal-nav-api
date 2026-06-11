@@ -724,16 +724,17 @@
     };
   }
 
-  function discoveredKey(path) {
-    return 'nav_discovered:' + cfg.cacheVersion + ':' + path;
-  }
+  // In-memory crawl dedup — paths reported in this page-load session.
+  // Intentionally NOT persisted to sessionStorage so that a page visited
+  // later in the same browser session is re-indexed if its content changed.
+  var _crawledThisLoad = {};
 
   function alreadyDiscovered(path) {
-    try { return !!sessionStorage.getItem(discoveredKey(path)); } catch (e) { return false; }
+    return !!_crawledThisLoad[path];
   }
 
   function markDiscovered(path) {
-    try { sessionStorage.setItem(discoveredKey(path), '1'); } catch (e) {}
+    _crawledThisLoad[path] = true;
   }
 
   /** Report one extracted page to the API. Returns a promise. */

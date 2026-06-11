@@ -143,8 +143,23 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         for k, cast in mapping.items():
             val = body.get(k) or body.get(k.lower())
             if val is not None:
-                setattr(settings, k, cast(val))
-                updated[k] = cast(val)
+                cast_val = cast(val)
+                setattr(settings, k, cast_val)
+                updated[k] = cast_val
+        # Persist to nav_config so changes survive Lambda cold starts.
+        if updated:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    for k, v in updated.items():
+                        cur.execute(
+                            """
+                            INSERT INTO nav_config (key, value, updated_at)
+                            VALUES (%s, %s, now())
+                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+                            """,
+                            (k, str(v)),
+                        )
+                conn.commit()
         return _r(200, {"updated": updated})
 
     # ── Bulk index ───────────────────────────────────────────────────────────

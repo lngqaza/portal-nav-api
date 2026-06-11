@@ -1,5 +1,7 @@
 """Navigation cascade: intent NLU → L0 hot-path → L1 embeddings → L2 re-ranker → L3 keywords → L4 weak candidates."""
+import json
 import logging
+import re
 import time
 from typing import Optional
 
@@ -14,8 +16,26 @@ from services import spelling
 
 logger = logging.getLogger(__name__)
 
+# PII patterns scrubbed from raw_query before it is written to nav_query_log.
+# SA ID numbers (13 digits), email addresses, phone numbers, and payment card
+# numbers are the most likely PII to appear in accidental free-text queries.
+_PII_SUBS = [
+    (re.compile(r'\b\d{13}\b'), '[sa-id]'),
+    (re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b'), '[email]'),
+    (re.compile(r'\b(?:\+27|0)\s?\d{2}\s?\d{3}\s?\d{4}\b'), '[phone]'),
+    (re.compile(r'\b(?:\d[ \-]?){13,16}\b'), '[card]'),
+]
 
-def route_query(query: str, scope: list = None, context_path: str = None) -> NavigationResult:
+
+def _scrub(query: str) -> str:
+    """Strip obvious PII from a query string before persisting to the DB."""
+    for pattern, replacement in _PII_SUBS:
+        query = pattern.sub(replacement, query)
+    return query
+
+
+def route_query(query: str, scope: list = None, context_path: str = None,
+                request_id: str = "-") -> NavigationResult:
     """
     Route a navigation query through the L0→L1→L2→L3→L4→MISS cascade.
 
@@ -44,7 +64,7 @@ def route_query(query: str, scope: list = None, context_path: str = None) -> Nav
         r0 = hp.lookup(core, scope)
     if r0:
         ms = _ms(start)
-        _log(query, r0.path, "L0", r0.confidence, ms, site, context_path)
+        _log(query, r0.path, "L0", r0.confidence, ms, site, context_path, request_id)
         return NavigationResult(r0.path, r0.label, r0.confidence, "L0", ms)
 
     # L1 — semantic embedding search (~8-50ms) on the intent core: question
@@ -66,7 +86,7 @@ def route_query(query: str, scope: list = None, context_path: str = None) -> Nav
     if candidates and candidates[0].score >= settings.L1_THRESHOLD:
         top = candidates[0]
         ms = _ms(start)
-        _log(query, top.path, "L1", top.score, ms, site, context_path)
+        _log(query, top.path, "L1", top.score, ms, site, context_path, request_id)
         return NavigationResult(
             top.path, top.label, top.score, "L1", ms,
             candidates=[{"path": c.path, "label": c.label, "score": round(c.score, 4)} for c in candidates[:3]],
@@ -77,22 +97,23 @@ def route_query(query: str, scope: list = None, context_path: str = None) -> Nav
         best = rer.rerank(core, candidates)
         if best:
             ms = _ms(start)
-            _log(query, best.path, "L2", best.score, ms, site, context_path)
+            _log(query, best.path, "L2", best.score, ms, site, context_path, request_id)
             return NavigationResult(best.path, best.label, best.score, "L2", ms)
 
     # L3 — keyword fallback against nav_index. Catches partial words ("dash")
     # and intent vocabulary the embeddings missed: the core is tokenised,
     # expanded through the domain synonym map ("log" -> "submit"), and pages
-    # are ranked by token coverage. Confidence is fixed below the
-    # auto-navigate threshold so the client always presents these as a
+    # are ranked by token coverage. Confidence is fixed at L3_CONFIDENCE (below
+    # the auto-navigate threshold) so the client always presents these as a
     # pick-list, never a silent redirect.
     like_hits = _keyword_fallback(core, scope)
     if like_hits:
         ms = _ms(start)
-        _log(query, like_hits[0]["path"], "L3", 0.5, ms, site, context_path)
+        conf = settings.L3_CONFIDENCE
+        _log(query, like_hits[0]["path"], "L3", conf, ms, site, context_path, request_id)
         return NavigationResult(
-            like_hits[0]["path"], like_hits[0]["label"], 0.5, "L3", ms,
-            candidates=[{"path": h["path"], "label": h["label"], "score": 0.5} for h in like_hits],
+            like_hits[0]["path"], like_hits[0]["label"], conf, "L3", ms,
+            candidates=[{"path": h["path"], "label": h["label"], "score": conf} for h in like_hits],
         )
 
     # L4 — last resort: if L1 produced *any* candidates, surface the top 3 as
@@ -102,16 +123,25 @@ def route_query(query: str, scope: list = None, context_path: str = None) -> Nav
     if candidates and settings.L4_ENABLED:
         top = candidates[0]
         ms = _ms(start)
-        _log(query, top.path, "L4", top.score, ms, site, context_path)
+        _log(query, top.path, "L4", top.score, ms, site, context_path, request_id)
         return NavigationResult(
             top.path, top.label, min(top.score, 0.5), "L4", ms,
             candidates=[{"path": c.path, "label": c.label, "score": round(min(c.score, 0.5), 4)} for c in candidates[:3]],
         )
 
-    # MISS — _log writes the nav_query_log row; record_miss is not called here
-    # to avoid the duplicate INSERT that was previously caused by hot_path.record_miss.
+    # MISS — emit CloudWatch EMF metric for real-time alerting on MISS rate spikes.
+    # EMF is parsed by CloudWatch Logs agent from stdout — zero added latency.
     ms = _ms(start)
-    _log(query, None, "MISS", 0.0, ms, site, context_path)
+    print(json.dumps({
+        "_aws": {
+            "Timestamp": int(time.time() * 1000),
+            "CloudWatchMetrics": [{"Namespace": "portal-nav-api", "Dimensions": [["site"]], "Metrics": [{"Name": "Miss", "Unit": "Count"}]}],
+        },
+        "site": site,
+        "Miss": 1,
+        "request_id": request_id,
+    }))
+    _log(query, None, "MISS", 0.0, ms, site, context_path, request_id)
     return NavigationResult(None, None, 0.0, "MISS", ms, suggestion="No match found")
 
 
@@ -172,13 +202,25 @@ def _ms(start: float) -> int:
 
 
 def _log(query: str, path: Optional[str], layer: str, confidence: float, ms: int,
-         site: str = "default", context_path: Optional[str] = None):
+         site: str = "default", context_path: Optional[str] = None,
+         request_id: str = "-"):
+    safe_query = _scrub(query)[:500]
+    logger.info(json.dumps({
+        "event": "nav_query",
+        "layer": layer,
+        "site": site,
+        "confidence": round(confidence, 4),
+        "response_ms": ms,
+        "request_id": request_id,
+    }))
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO nav_query_log (raw_query,matched_path,layer_used,confidence,response_ms,site_id,context_path) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                    (query[:500], path, layer, confidence, ms, site, context_path),
+                    "INSERT INTO nav_query_log "
+                    "(raw_query,matched_path,layer_used,confidence,response_ms,site_id,context_path) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (safe_query, path, layer, confidence, ms, site, context_path),
                 )
             conn.commit()
     except Exception as e:

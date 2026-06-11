@@ -88,13 +88,13 @@ def lambda_handler(event, context):
             from core.auth import validate_api_key
             from routes.query import handle_query
             scope = validate_api_key(headers)
-            return handle_query(_body(event), scope)
+            return handle_query(_body(event), scope, request_id=request_id)
 
         if path in ("/query/batch", "/query/batch/") and method == "POST":
             from core.auth import validate_api_key
             from routes.query import handle_batch
             scope = validate_api_key(headers)
-            return handle_batch(_body(event), scope)
+            return handle_batch(_body(event), scope, request_id=request_id)
 
         if path in ("/query/suggest", "/query/suggest/") and method == "GET":
             from core.auth import resolve_scope

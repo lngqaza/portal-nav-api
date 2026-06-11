@@ -62,6 +62,7 @@ def init_pool():
                 cur.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
             conn.commit()
         _run_migrations()
+        _load_config_overrides()
         logger.info("DB pool ready")
     except Exception as e:
         logger.error("DB pool init failed: %s", e)
@@ -223,6 +224,28 @@ def _run_migrations():
     -- Drives context-boost analysis and future personalization.
     ALTER TABLE nav_query_log ADD COLUMN IF NOT EXISTS context_path VARCHAR(500);
 
+    -- Audit trail: who/what last modified a hot-path row.
+    -- action_source: 'api'|'auto-promote'|'alias-learn'|'evict'
+    ALTER TABLE nav_hot_paths ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100) DEFAULT 'system';
+    ALTER TABLE nav_hot_paths ADD COLUMN IF NOT EXISTS action_source VARCHAR(50) DEFAULT 'api';
+
+    -- Tenant registry — one row per site_id.  Provides a single authoritative
+    -- list for validation and future FK constraints.  Idempotent: inserting
+    -- 'default' again is a no-op thanks to ON CONFLICT DO NOTHING.
+    CREATE TABLE IF NOT EXISTS nav_sites (
+        site_id    VARCHAR(64) PRIMARY KEY,
+        label      VARCHAR(200) NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT now()
+    );
+    INSERT INTO nav_sites (site_id, label) VALUES ('default', 'Default site')
+        ON CONFLICT (site_id) DO NOTHING;
+
+    -- Data retention: delete log rows older than 90 days.
+    -- Runs on every cold start; cost is trivial if nothing is old enough to delete.
+    -- For high-volume portals, partition nav_query_log by month instead.
+    DELETE FROM nav_query_log    WHERE created_at < now() - interval '90 days';
+    DELETE FROM nav_navigate_log WHERE created_at < now() - interval '90 days';
+
     -- Backfill: content_hash was added without DEFAULT so existing rows are NULL.
     -- Empty string is the sentinel for "not yet hashed" — the crawler skips
     -- rehashing pages whose hash matches the current content, so NULL rows
@@ -245,3 +268,29 @@ def _run_migrations():
             cur.execute(ddl)
         conn.commit()
     logger.info("Migrations applied")
+
+
+def _load_config_overrides():
+    """Load operator-persisted config from nav_config into the settings singleton.
+
+    Allows PUT /admin/config changes to survive Lambda cold starts — values
+    written to nav_config take precedence over the env-var defaults in Settings.
+    Only whitelisted numeric keys are applied; unknown keys are ignored.
+    """
+    _CAST = {
+        "MAX_HOT_PATHS": int,
+        "HOT_PATH_THRESHOLD": float,
+        "L1_THRESHOLD": float,
+        "L2_THRESHOLD": float,
+    }
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT key, value FROM nav_config")
+                rows = cur.fetchall()
+        for key, value in rows:
+            if key in _CAST:
+                setattr(settings, key, _CAST[key](value))
+                logger.info("config override: %s = %s", key, value)
+    except Exception as exc:
+        logger.warning("_load_config_overrides failed (non-fatal): %s", exc)

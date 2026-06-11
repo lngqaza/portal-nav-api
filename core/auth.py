@@ -1,14 +1,27 @@
 """
 API key and admin token validation.
 
-All comparisons use hmac.compare_digest so the time taken is independent of
-whether the key matches and independent of which byte first differs.  Direct
-string equality (==, !=, `in`) leaks key length and match position through
-timing and must never be used on secrets.
+All comparisons use hmac.compare_digest on fixed-length HMAC digests so the
+comparison time is independent of key length and match position.  Padding
+with null bytes (as done in many naive implementations) leaks the configured
+key length via timing because compare_digest runs for max(len_a,len_b) bytes.
+The fix: HMAC both values with a stable internal key → both produce 32-byte
+digests regardless of input length, eliminating all length side-channels.
 """
+import hashlib
 import hmac
 
 from core.config import settings
+
+# Internal HMAC key for constant-length digest generation.
+# Not a secret — its purpose is solely to normalise input length, not
+# to add cryptographic strength beyond what compare_digest already provides.
+_CMP_KEY = b"nav-api-compare-v1"
+
+
+def _digest(value: bytes) -> bytes:
+    """Return a 32-byte HMAC-SHA256 digest regardless of input length."""
+    return hmac.new(_CMP_KEY, value, hashlib.sha256).digest()
 
 
 def validate_api_key(headers: dict) -> str:
@@ -52,17 +65,9 @@ def resolve_scope(key: str):
     # hmac.compare_digest requires equal-length bytes; encode both sides so a
     # length mismatch doesn't short-circuit before the byte-by-byte compare.
     scope = None
-    key_b = key.encode()
+    key_d = _digest(key.encode())
     for configured in settings.API_KEYS:
-        # Pad the shorter string to the length of the longer before comparing
-        # so the digest comparison itself runs for the same number of bytes.
-        cfg_b = configured.encode()
-        # Use the longer length to avoid leaking length information.
-        max_len = max(len(key_b), len(cfg_b))
-        if hmac.compare_digest(
-            key_b.ljust(max_len, b"\x00"),
-            cfg_b.ljust(max_len, b"\x00"),
-        ):
+        if hmac.compare_digest(key_d, _digest(configured.encode())):
             scope = settings.KEY_SCOPES.get(configured, ["default"])
         # Do NOT break — always iterate all keys.
     return scope
@@ -87,12 +92,6 @@ def validate_admin_token(headers: dict) -> str:
     if not token or not settings.ADMIN_TOKEN:
         raise PermissionError("Invalid or missing admin token")
 
-    token_b = token.encode()
-    expected_b = settings.ADMIN_TOKEN.encode()
-    max_len = max(len(token_b), len(expected_b))
-    if not hmac.compare_digest(
-        token_b.ljust(max_len, b"\x00"),
-        expected_b.ljust(max_len, b"\x00"),
-    ):
+    if not hmac.compare_digest(_digest(token.encode()), _digest(settings.ADMIN_TOKEN.encode())):
         raise PermissionError("Invalid or missing admin token")
     return token
