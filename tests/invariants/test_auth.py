@@ -126,3 +126,28 @@ def test_auth05_suggest_no_auth_required(invoke):
     status, body = invoke("GET", "/query/suggest", params={"q": "test"})
     assert status == 200
     assert isinstance(body, list)
+
+
+# ── AUTH-06: /navigate rejects missing/invalid API key ───────────────────────
+
+def test_auth06_navigate_missing_key_returns_401(invoke):
+    """POST /navigate without a valid API key → 401."""
+    status, body = invoke("POST", "/navigate", body={
+        "query": "test query",
+        "path": "/some/path",
+        "label": "Some Page",
+        "confidence": 0.9,
+    })
+    assert status == 401, f"Expected 401 for /navigate with no key, got {status}: {body}"
+
+
+def test_auth06_navigate_invalid_key_returns_401(invoke):
+    """POST /navigate with an invalid API key → 401."""
+    status, body = invoke("POST", "/navigate", body={
+        "query": "test query",
+        "path": "/some/path",
+        "label": "Some Page",
+        "confidence": 0.9,
+        "key": "definitely-not-a-real-key-xyz",
+    })
+    assert status == 401, f"Expected 401 for invalid key, got {status}: {body}"

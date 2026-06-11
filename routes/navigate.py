@@ -36,7 +36,11 @@ def handle_navigate(body: dict) -> dict:
         return _r(400, {"error": "query, path, and label are required"})
 
     # sendBeacon cannot set headers, so the widget carries its API key in the
-    # body; an unknown/absent key falls back to the default tenant.
-    scope = resolve_scope(str(body.get("key", ""))) or ["default"]
+    # body.  Reject missing or invalid keys — falling back to "default" would
+    # allow unauthenticated callers to poison the auto-promotion counter by
+    # injecting fake navigate events for arbitrary paths.
+    scope = resolve_scope(str(body.get("key", "")))
+    if scope is None:
+        return _r(401, {"error": "Invalid or missing API key"})
     result = record_navigation(query, path, label, confidence, scope[0])
     return _r(200, result)

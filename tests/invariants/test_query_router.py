@@ -142,3 +142,20 @@ def test_route09_every_query_logged_once(clean_db):
         count = cur.fetchone()[0]
 
     assert count == 1, f"Expected 1 log entry, found {count}"
+
+
+# ── ROUTE-10: PII is scrubbed from raw_query before DB insert ─────────────────
+
+@pytest.mark.parametrize("raw,expected_absent", [
+    ("my id is 8501015009087", "8501015009087"),          # SA ID number
+    ("email me at user@example.com please", "user@example.com"),
+    ("call me on +27 82 123 4567", "+27 82 123 4567"),
+    ("card 4111 1111 1111 1111 please", "4111 1111 1111 1111"),
+])
+def test_route10_pii_scrubbed_before_db(raw, expected_absent):
+    """PII patterns in raw_query are replaced before being written to nav_query_log."""
+    from services.query_router import _scrub
+    scrubbed = _scrub(raw)
+    assert expected_absent not in scrubbed, (
+        f"PII not scrubbed — '{expected_absent}' still present in: {scrubbed!r}"
+    )

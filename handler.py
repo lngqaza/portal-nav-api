@@ -106,10 +106,9 @@ def lambda_handler(event, context):
             scope = resolve_scope(key) or ["default"]
             return handle_suggest(qs.get("q", ""), scope)
 
-        # POST /navigate — feedback endpoint (no auth; called by widget after navigation)
-        # Intentionally unauthenticated: the data written is non-sensitive navigation
-        # telemetry.  Rate-limited at API Gateway (50 req/s) which is sufficient
-        # protection against bulk poisoning of the promotion counter.
+        # POST /navigate — widget feedback endpoint.
+        # API key is carried in the request body (sendBeacon cannot set headers).
+        # Requests with missing or invalid keys are rejected 401 in handle_navigate.
         if path in ("/navigate", "/navigate/") and method == "POST":
             from routes.navigate import handle_navigate
             return handle_navigate(_body(event))
