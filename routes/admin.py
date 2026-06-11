@@ -1,5 +1,6 @@
 """Admin route handlers — CRUD for hot-paths, index, stats, config."""
 import json
+import re
 from datetime import datetime, timedelta
 
 from core.db import get_conn
@@ -10,6 +11,15 @@ from services.crawler import crawl_sitemap, bulk_index
 from services.feedback import get_navigation_stats
 from services.analytics import get_analytics
 from services.miss_mining import get_miss_report
+
+_UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+
+
+def _validate_uuid(value: str, field: str = "id") -> str:
+    """Raise ValueError if value is not a valid UUID; return it if valid."""
+    if not _UUID_RE.match(value or ""):
+        raise ValueError(f"Invalid {field}: {value!r}")
+    return value
 
 
 def _r(status, data):
@@ -24,13 +34,14 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
 
     # ── Hot paths ───────────────────────────────────────────────────────────
     if path == "/admin/hot-paths" and method == "GET":
-        return _r(200, get_top_paths(int(params.get("limit", 70))))
+        site = params.get("site") or None
+        return _r(200, get_top_paths(int(params.get("limit", 70)), site=site))
 
     if path == "/admin/hot-paths" and method == "POST":
         return _r(200, upsert_path(body))
 
     if path.startswith("/admin/hot-paths/") and not path.endswith("/pin"):
-        pid = path.split("/")[-1]
+        pid = _validate_uuid(path.split("/")[-1])
         if method == "PUT":
             with get_conn() as conn:
                 with conn.cursor() as cur:
@@ -48,7 +59,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
             return _r(200, {"deleted": pid})
 
     if path.startswith("/admin/hot-paths/") and path.endswith("/pin") and method == "POST":
-        pid = path.split("/")[-2]
+        pid = _validate_uuid(path.split("/")[-2])
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("UPDATE nav_hot_paths SET pinned=true WHERE id=%s", (pid,))
@@ -56,7 +67,8 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         return _r(200, {"pinned": pid})
 
     if path == "/admin/hot-paths/evict" and method == "POST":
-        return _r(200, {"evicted": evict_cold_paths(int(body.get("min_hits_per_week", 50)))})
+        site = body.get("site") or None
+        return _r(200, {"evicted": evict_cold_paths(int(body.get("min_hits_per_week", 50)), site=site)})
 
     # ── Index ────────────────────────────────────────────────────────────────
     if path == "/admin/index" and method == "GET":
@@ -76,7 +88,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         return _r(200, {"indexed": body["path"]})
 
     if path.startswith("/admin/index/") and method == "DELETE":
-        iid = path.split("/")[-1]
+        iid = _validate_uuid(path.split("/")[-1])
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM nav_index WHERE id=%s", (iid,))
@@ -156,7 +168,8 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     # GET /admin/feedback?days=7
     if path == "/admin/feedback" and method == "GET":
         days = int(params.get("days", 7))
-        return _r(200, get_navigation_stats(days))
+        site = params.get("site") or None
+        return _r(200, get_navigation_stats(days, site))
 
     # ── Analytics — CTR, daily volume, layer breakdown, top queries/pages ─────
     # GET /admin/analytics?days=7&site=lumo

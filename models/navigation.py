@@ -1,6 +1,6 @@
 """Domain dataclasses — no ORM, no framework."""
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 
 @dataclass
@@ -24,7 +24,7 @@ class NavigationResult:
     path: Optional[str]
     label: Optional[str]
     confidence: float
-    layer: str          # L0 | L1 | L2 | MISS
+    layer: Literal["L0", "L1", "L2", "L3", "L4", "MISS"]
     response_ms: int
     candidates: List[dict] = field(default_factory=list)
     suggestion: Optional[str] = None

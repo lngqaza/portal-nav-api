@@ -82,9 +82,8 @@ jobs:
         id: push
         run: |
           IMAGE_URI=$ECR_REPO:${{ github.sha }}
-          docker build --no-cache -t $IMAGE_URI -t $ECR_REPO:latest .
+          docker build --no-cache -t $IMAGE_URI .
           docker push $IMAGE_URI
-          docker push $ECR_REPO:latest
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
 
       - name: Prune old images (keep 5)
@@ -203,6 +202,22 @@ jobs:
               --query 'AliasArn' --output text)
           fi
           echo "ALIAS_ARN=$ALIAS_ARN" >> $GITHUB_ENV
+
+          # ── Smoke test: /health must return 200 before PC is set ──────────────
+          # If the new image is broken, we fail here rather than locking a bad
+          # version into provisioned concurrency (which makes rollback slower).
+          echo "Smoke-testing /health on new version $VERSION..."
+          HEALTH=$(aws lambda invoke \
+            --function-name $FUNCTION_NAME:$VERSION \
+            --payload '{"rawPath":"/health","requestContext":{"http":{"method":"GET"}}}' \
+            --query 'StatusCode' --output text \
+            /tmp/health-response.json 2>&1 || echo "INVOKE_FAILED")
+          BODY=$(cat /tmp/health-response.json 2>/dev/null || echo "{}")
+          echo "  Lambda status: $HEALTH  body: $BODY"
+          if [ "$HEALTH" != "200" ]; then
+            echo "::error::Smoke test failed — /health returned $HEALTH. Deploy aborted."
+            exit 1
+          fi
 
           # ── Provisioned concurrency = 1 ────────────────────────────────────
           # Keeps 1 warm ONNX instance; eliminates the ~15s cold-start p90
@@ -390,11 +405,16 @@ jobs:
       - name: Run Wave 3 Jest suite
         env:
           NAV_API_URL: ${{ needs.deploy.outputs.api_url }}
-          # NAV_API_KEY must be a single key; NAV_API_KEYS secret holds comma-separated
-          # list — take the first value by stripping everything from the first comma.
-          NAV_API_KEY: ${{ secrets.NAV_API_KEYS }}
           NAV_ADMIN_TOKEN: ${{ secrets.NAV_ADMIN_TOKEN }}
-        run: npm run test:ci 2>&1 | tee jest-wave3.log
+          # NAV_API_KEYS is comma-separated multi-tenant; extract just the first key.
+          # The key portion is everything before the first colon (scope separator) or
+          # comma (key separator): "key1:lumo|default,key2:novasure" → "key1"
+          NAV_API_KEYS_RAW: ${{ secrets.NAV_API_KEYS }}
+        run: |
+          # Extract first key: take up to first comma, then up to first colon
+          FIRST_ENTRY=$(echo "$NAV_API_KEYS_RAW" | cut -d',' -f1)
+          export NAV_API_KEY=$(echo "$FIRST_ENTRY" | cut -d':' -f1)
+          npm run test:ci 2>&1 | tee jest-wave3.log
 
       - name: Upload Jest log
         if: always()

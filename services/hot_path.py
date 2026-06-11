@@ -90,31 +90,39 @@ def _increment_hit(path_id: str):
         logger.warning("hit increment failed: %s", e)
 
 
-def record_miss(query: str, site: str = "default"):
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO nav_query_log (raw_query,layer_used,confidence,response_ms,site_id) VALUES (%s,'MISS',0.0,0,%s)",
-                    (query[:500], site),
-                )
-            conn.commit()
-    except Exception as e:
-        logger.warning("record_miss failed: %s", e)
+def get_top_paths(limit: int = 70, site: str = None) -> list:
+    """
+    Return hot-path rows ordered by popularity.
 
-
-def get_top_paths(limit: int = 70) -> list:
+    Args:
+        limit: Maximum rows to return.
+        site:  When provided, restrict to this tenant only. None returns all
+               tenants (admin overview only — never use without site in
+               production query serving).
+    """
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, path, label, aliases, hit_count, last_hit_at, pinned, created_at
-                FROM nav_hot_paths
-                ORDER BY (hit_count + CASE WHEN pinned THEN 10000 ELSE 0 END) DESC
-                LIMIT %s
-                """,
-                (limit,),
-            )
+            if site:
+                cur.execute(
+                    """
+                    SELECT id, path, label, aliases, hit_count, last_hit_at, pinned, created_at
+                    FROM nav_hot_paths
+                    WHERE site_id = %s
+                    ORDER BY (hit_count + CASE WHEN pinned THEN 10000 ELSE 0 END) DESC
+                    LIMIT %s
+                    """,
+                    (site, limit),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, path, label, aliases, hit_count, last_hit_at, pinned, created_at
+                    FROM nav_hot_paths
+                    ORDER BY (hit_count + CASE WHEN pinned THEN 10000 ELSE 0 END) DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
 
@@ -160,18 +168,38 @@ def upsert_path(data: dict) -> dict:
     return {"id": str(row[0]), "path": row[1], "label": row[2]}
 
 
-def evict_cold_paths(min_hits_per_week: int = 50) -> int:
+def evict_cold_paths(min_hits_per_week: int = 50, site: str = None) -> int:
+    """
+    Delete unpinned paths that haven't been hit recently enough.
+
+    Args:
+        min_hits_per_week: Paths with fewer total hits are candidates for eviction.
+        site: When provided, restrict eviction to this tenant. Never evict
+              cross-tenant — callers must pass the authenticated site_id.
+    """
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                DELETE FROM nav_hot_paths
-                WHERE pinned=false
-                AND (last_hit_at IS NULL OR last_hit_at < now() - interval '7 days')
-                AND hit_count < %s
-                """,
-                (min_hits_per_week,),
-            )
+            if site:
+                cur.execute(
+                    """
+                    DELETE FROM nav_hot_paths
+                    WHERE site_id = %s
+                      AND pinned = false
+                      AND (last_hit_at IS NULL OR last_hit_at < now() - interval '7 days')
+                      AND hit_count < %s
+                    """,
+                    (site, min_hits_per_week),
+                )
+            else:
+                cur.execute(
+                    """
+                    DELETE FROM nav_hot_paths
+                    WHERE pinned = false
+                      AND (last_hit_at IS NULL OR last_hit_at < now() - interval '7 days')
+                      AND hit_count < %s
+                    """,
+                    (min_hits_per_week,),
+                )
             deleted = cur.rowcount
         conn.commit()
     return deleted

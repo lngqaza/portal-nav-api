@@ -27,7 +27,7 @@ const {
   adminGet,
 } = require('../helpers/client');
 
-const VALID_LAYERS = new Set(['L0', 'L1', 'L2', 'MISS']);
+const VALID_LAYERS = new Set(['L0', 'L1', 'L2', 'L3', 'L4', 'MISS']);
 
 /**
  * Assert every mandatory field of a NavigationResult has the correct type.
@@ -186,8 +186,14 @@ let originalL2Threshold;
     });
 
     // ── E2E-07 ─────────────────────────────────────────────────────────────
+    // NOTE: This test is skipped against production URLs to avoid mutating live
+    // config. It only runs against localhost / staging environments where a
+    // transient config change is safe. The afterAll restore remains as a safety
+    // net for when the test does run (e.g. a local Lambda invoke).
 
-    test('E2E-07: PUT /admin/config persists threshold change and restores it', async () => {
+    const IS_LOCAL = (process.env.NAV_API_URL || '').includes('localhost');
+
+    (IS_LOCAL ? test : test.skip)('E2E-07: PUT /admin/config persists threshold change and restores it', async () => {
       // Capture original value so afterAll can restore unconditionally.
       const { status: getStatus, body: cfg } = await adminGet('/admin/config');
       expect(getStatus).toBe(200);

@@ -179,57 +179,91 @@ def _maybe_promote(path: str, label: str, confidence: float, site: str = "defaul
         return False, count
 
 
-def get_navigation_stats(days: int = 7) -> dict:
+def get_navigation_stats(days: int = 7, site: str = None) -> dict:
     """
     Return aggregate navigation stats for the given window.
 
     Args:
         days: Number of days to look back (default 7).
+        site: Site ID to filter by, or None for all sites (admin only).
 
     Returns:
         dict with top_paths (list), total_navigations (int), promotion_candidates (list).
     """
     window_start = datetime.utcnow() - timedelta(days=days)
+    # Build parameterised clauses — never interpolate site into the SQL string.
+    if site:
+        site_filter = "AND site_id = %s"
+        base_params = (window_start, site)
+    else:
+        site_filter = ""
+        base_params = (window_start,)
+
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 # Top navigated paths
                 cur.execute(
-                    """
+                    f"""
                     SELECT navigated_path, label, COUNT(*) AS nav_count,
                            COUNT(DISTINCT raw_query) AS unique_queries
                     FROM nav_navigate_log
-                    WHERE created_at >= %s
+                    WHERE created_at >= %s {site_filter}
                     GROUP BY navigated_path, label
                     ORDER BY nav_count DESC
                     LIMIT 20
                     """,
-                    (window_start,),
+                    base_params,
                 )
                 top_paths = [
                     {"path": r[0], "label": r[1], "nav_count": r[2], "unique_queries": r[3]}
                     for r in cur.fetchall()
                 ]
 
-                cur.execute("SELECT COUNT(*) FROM nav_navigate_log WHERE created_at >= %s", (window_start,))
+                cur.execute(
+                    f"SELECT COUNT(*) FROM nav_navigate_log WHERE created_at >= %s {site_filter}",
+                    base_params,
+                )
                 total = cur.fetchone()[0]
 
-                # Paths close to promotion threshold (not yet in hot_paths)
-                cur.execute(
-                    """
-                    SELECT n.navigated_path, n.label, COUNT(DISTINCT n.raw_query) AS uq
-                    FROM nav_navigate_log n
-                    LEFT JOIN nav_hot_paths h ON h.path = n.navigated_path
-                    WHERE n.created_at >= %s
-                      AND n.confidence >= %s
-                      AND h.id IS NULL
-                    GROUP BY n.navigated_path, n.label
-                    HAVING COUNT(DISTINCT n.raw_query) >= 1
-                    ORDER BY uq DESC
-                    LIMIT 10
-                    """,
-                    (window_start, PROMOTE_MIN_CONFIDENCE),
-                )
+                # Paths close to promotion threshold (not yet in hot_paths for this site).
+                # The JOIN is scoped to the same site_id so cross-tenant hot-paths don't
+                # suppress promotion candidates for a different tenant.
+                if site:
+                    cur.execute(
+                        """
+                        SELECT n.navigated_path, n.label, COUNT(DISTINCT n.raw_query) AS uq
+                        FROM nav_navigate_log n
+                        LEFT JOIN nav_hot_paths h
+                               ON h.path = n.navigated_path AND h.site_id = n.site_id
+                        WHERE n.created_at >= %s
+                          AND n.site_id = %s
+                          AND n.confidence >= %s
+                          AND h.id IS NULL
+                        GROUP BY n.navigated_path, n.label
+                        HAVING COUNT(DISTINCT n.raw_query) >= 1
+                        ORDER BY uq DESC
+                        LIMIT 10
+                        """,
+                        (window_start, site, PROMOTE_MIN_CONFIDENCE),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT n.navigated_path, n.label, COUNT(DISTINCT n.raw_query) AS uq
+                        FROM nav_navigate_log n
+                        LEFT JOIN nav_hot_paths h
+                               ON h.path = n.navigated_path AND h.site_id = n.site_id
+                        WHERE n.created_at >= %s
+                          AND n.confidence >= %s
+                          AND h.id IS NULL
+                        GROUP BY n.navigated_path, n.label
+                        HAVING COUNT(DISTINCT n.raw_query) >= 1
+                        ORDER BY uq DESC
+                        LIMIT 10
+                        """,
+                        (window_start, PROMOTE_MIN_CONFIDENCE),
+                    )
                 candidates = [
                     {"path": r[0], "label": r[1], "unique_queries": r[2],
                      "needed_for_promotion": max(0, PROMOTE_UNIQUE_QUERIES - r[2])}

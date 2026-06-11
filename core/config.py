@@ -34,6 +34,11 @@ class Settings:
     # Ranking multiplier for results from scope sites other than the key's
     # home site — shared content stays findable but home pages win ties.
     CROSS_SITE_PENALTY: float = float(os.environ.get("CROSS_SITE_PENALTY", "0.85"))
+    # Score multiplier applied to candidates sharing the user's current page segment.
+    CONTEXT_BOOST_FACTOR: float = float(os.environ.get("CONTEXT_BOOST_FACTOR", "1.10"))
+    # Set to "true" to enable L4 weak-candidate fallback (off by default — surfacing
+    # low-confidence results can lower perceived quality in production portals).
+    L4_ENABLED: bool = os.environ.get("L4_ENABLED", "false").lower() == "true"
     ADMIN_TOKEN: str = os.environ.get("ADMIN_TOKEN", "")
     EMBEDDING_MODEL_PATH: str = os.environ.get(
         "EMBEDDING_MODEL_PATH", "/var/task/onnx_models/minilm/model.onnx"

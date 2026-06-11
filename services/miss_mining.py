@@ -36,28 +36,38 @@ def get_miss_report(days: int = 7, site: str = None) -> dict:
         sorted by frequency descending.
     """
     window_start = datetime.utcnow() - timedelta(days=days)
-    site_cond = "AND site_id = %s" if site else ""
-    params = [window_start] + ([site] if site else [])
+    # Parameterised: site_id is always bound as a query parameter, never interpolated.
+    # The WHERE clause structure (two variants) is fixed SQL — no user input reaches
+    # the string template.
+    if site:
+        params = [window_start, site]
+        miss_sql = (
+            "SELECT raw_query, COUNT(*) AS cnt FROM nav_query_log "
+            "WHERE layer_used = 'MISS' AND created_at >= %s AND site_id = %s "
+            "GROUP BY raw_query ORDER BY cnt DESC LIMIT 100"
+        )
+        count_sql = (
+            "SELECT COUNT(*) FROM nav_query_log "
+            "WHERE layer_used = 'MISS' AND created_at >= %s AND site_id = %s"
+        )
+    else:
+        params = [window_start]
+        miss_sql = (
+            "SELECT raw_query, COUNT(*) AS cnt FROM nav_query_log "
+            "WHERE layer_used = 'MISS' AND created_at >= %s "
+            "GROUP BY raw_query ORDER BY cnt DESC LIMIT 100"
+        )
+        count_sql = (
+            "SELECT COUNT(*) FROM nav_query_log "
+            "WHERE layer_used = 'MISS' AND created_at >= %s"
+        )
 
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT raw_query, COUNT(*) AS cnt
-                    FROM nav_query_log
-                    WHERE layer_used = 'MISS' AND created_at >= %s {site_cond}
-                    GROUP BY raw_query
-                    ORDER BY cnt DESC
-                    LIMIT 500
-                    """,
-                    params,
-                )
+                cur.execute(miss_sql, params)
                 rows = cur.fetchall()
-                cur.execute(
-                    f"SELECT COUNT(*) FROM nav_query_log WHERE layer_used = 'MISS' AND created_at >= %s {site_cond}",
-                    params,
-                )
+                cur.execute(count_sql, params)
                 total_misses = cur.fetchone()[0]
     except Exception as exc:
         logger.warning("miss_report query failed: %s", exc)

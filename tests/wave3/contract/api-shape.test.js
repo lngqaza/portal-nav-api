@@ -24,7 +24,7 @@ const {
 } = require('../helpers/client');
 
 const REQUIRED_FIELDS = ['path', 'label', 'confidence', 'layer', 'response_ms', 'candidates', 'suggestion'];
-const VALID_LAYERS    = ['L0', 'L1', 'L2', 'MISS'];
+const VALID_LAYERS    = ['L0', 'L1', 'L2', 'L3', 'L4', 'MISS'];
 
 // ── SHAPE-01 — health check (no auth) ────────────────────────────────────────
 

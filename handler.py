@@ -30,19 +30,45 @@ load_model()
 load_reranker()
 init_pool()
 
+# Fail fast at cold start if ADMIN_TOKEN is absent or too short.
+# An empty ADMIN_TOKEN would leave every /admin route wide open.
+if os.environ.get("LAMBDA_TASK_ROOT"):
+    _admin_tok = settings.ADMIN_TOKEN
+    if not _admin_tok or len(_admin_tok) < 32:
+        raise RuntimeError(
+            "ADMIN_TOKEN must be set and at least 32 characters. "
+            "Set it in the Lambda environment variables."
+        )
+
+# CORS origins — comma-separated list from env, defaulting to open for backwards
+# compatibility (widget is embedded in third-party portals we don't control).
+# Set CORS_ORIGINS to a comma-separated allowlist in production where possible.
+_CORS_ORIGINS = set(
+    o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
+)
+
+
+def _cors_origin(request_origin: str) -> str:
+    """Return the ACAO value for this request's Origin header."""
+    if "*" in _CORS_ORIGINS:
+        return "*"
+    return request_origin if request_origin in _CORS_ORIGINS else list(_CORS_ORIGINS)[0]
+
 
 def lambda_handler(event, context):
     path   = event.get("rawPath", "/")
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET").upper()
+    request_id = getattr(context, "aws_request_id", "-")
 
     # CORS preflight — API Gateway quick-create routes OPTIONS to Lambda via
     # the $default catch-all, bypassing the API-level CORS auto-handler.
     # Return 200 immediately so the browser's preflight succeeds.
     if method == "OPTIONS":
+        req_origin = (event.get("headers") or {}).get("origin", "")
         return {
             "statusCode": 200,
             "headers": {
-                "Access-Control-Allow-Origin":  "*",
+                "Access-Control-Allow-Origin":  _cors_origin(req_origin),
                 "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
                 "Access-Control-Allow-Headers": "content-type,x-api-key",
                 "Access-Control-Max-Age":       "300",
@@ -51,7 +77,7 @@ def lambda_handler(event, context):
         }
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
 
-    logger.info(json.dumps({"path": path, "method": method}))
+    logger.info(json.dumps({"path": path, "method": method, "request_id": request_id}))
 
     try:
         if path == "/health" and method == "GET":
@@ -74,7 +100,10 @@ def lambda_handler(event, context):
             from core.auth import resolve_scope
             from routes.query import handle_suggest
             qs = event.get("queryStringParameters") or {}
-            scope = resolve_scope(qs.get("k", "")) or ["default"]
+            # Prefer X-Api-Key header (key in ?k= is visible in access logs).
+            # Fall back to ?k= for backwards-compat with existing widget versions.
+            key = headers.get("x-api-key") or qs.get("k", "")
+            scope = resolve_scope(key) or ["default"]
             return handle_suggest(qs.get("q", ""), scope)
 
         # POST /navigate — feedback endpoint (no auth; called by widget after navigation)

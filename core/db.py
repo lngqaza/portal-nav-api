@@ -222,9 +222,26 @@ def _run_migrations():
     -- Landing-page inference: record which page the user was on when they queried.
     -- Drives context-boost analysis and future personalization.
     ALTER TABLE nav_query_log ADD COLUMN IF NOT EXISTS context_path VARCHAR(500);
+
+    -- Backfill: content_hash was added without DEFAULT so existing rows are NULL.
+    -- Empty string is the sentinel for "not yet hashed" — the crawler skips
+    -- rehashing pages whose hash matches the current content, so NULL rows
+    -- would never be rehashed. Fill them once idempotently.
+    UPDATE nav_index SET content_hash = '' WHERE content_hash IS NULL;
+
+    -- HNSW index for approximate nearest-neighbour embedding search.
+    -- ef_construction=64 / m=16: good recall/build-time tradeoff for this
+    -- collection size (~10k pages). Required before pgvector 0.5 — CREATE
+    -- INDEX IF NOT EXISTS is idempotent.
+    CREATE INDEX IF NOT EXISTS idx_nav_index_embedding
+        ON nav_index USING hnsw (embedding vector_cosine_ops)
+        WITH (m=16, ef_construction=64);
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # Bound DDL time: if a previous migration is holding a lock
+            # (e.g. a failed cold start), fail fast rather than blocking.
+            cur.execute("SET lock_timeout = '3s'")
             cur.execute(ddl)
         conn.commit()
     logger.info("Migrations applied")

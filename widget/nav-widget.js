@@ -677,11 +677,14 @@
   // that, it quietly follows the site's own same-origin links in the
   // background, so one visit to any page indexes the whole site. The server
   // skips re-indexing unless a page's content hash changed.
-  //   data-discover="on"   (default) index this page AND crawl linked pages
+  //   data-discover="off"  (default) no discovery at all
   //   data-discover="self" index only the page being viewed
-  //   data-discover="off"  no discovery at all
+  //   data-discover="on"   index this page AND crawl linked pages
 
-  var discoverMode = scriptEl.getAttribute('data-discover') || 'on';
+  // Default is 'off' — crawling must be explicitly enabled by the portal operator
+  // via data-discover="on|self". Opt-in prevents accidental content harvesting on
+  // portals that include the widget without reviewing the crawl behaviour first.
+  var discoverMode = scriptEl.getAttribute('data-discover') || 'off';
   var CRAWL_MAX_PAGES = parseInt(scriptEl.getAttribute('data-discover-max') || '30', 10);
   var CRAWL_SPACING_MS = 1000;  // one background fetch per second — invisible to the visitor
 
@@ -787,7 +790,10 @@
       if (alreadyDiscovered(path)) { next(); return; }
       processed++;
 
-      fetch(path, { credentials: 'same-origin' })
+      // credentials:'omit' — the crawler must not send authenticated cookies
+      // to pages it visits. 'same-origin' would forward session credentials,
+      // allowing the widget to harvest content from authenticated portal pages.
+      fetch(path, { credentials: 'omit' })
         .then(function (r) {
           var type = r.headers.get('content-type') || '';
           if (!r.ok || type.indexOf('html') < 0) throw new Error('not html');

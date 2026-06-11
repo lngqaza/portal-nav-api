@@ -60,7 +60,7 @@ def route_query(query: str, scope: list = None, context_path: str = None) -> Nav
         for c in candidates:
             cand_seg = c.path.strip('/').split('/')[0]
             if ctx_seg and ctx_seg == cand_seg:
-                c.score = min(c.score * 1.10, 1.0)
+                c.score = min(c.score * settings.CONTEXT_BOOST_FACTOR, 1.0)
         candidates.sort(key=lambda c: -c.score)
 
     if candidates and candidates[0].score >= settings.L1_THRESHOLD:
@@ -96,9 +96,10 @@ def route_query(query: str, scope: list = None, context_path: str = None) -> Nav
         )
 
     # L4 — last resort: if L1 produced *any* candidates, surface the top 3 as
-    # low-confidence suggestions instead of a dead-end MISS. A weak guess the
-    # user can confirm beats "no match" for conversational queries.
-    if candidates:
+    # low-confidence suggestions instead of a dead-end MISS. Disabled by default
+    # (L4_ENABLED=false) — weak guesses can lower perceived quality in portals
+    # where a clean "no match" is preferable to a plausible but wrong result.
+    if candidates and settings.L4_ENABLED:
         top = candidates[0]
         ms = _ms(start)
         _log(query, top.path, "L4", top.score, ms, site, context_path)
@@ -107,8 +108,8 @@ def route_query(query: str, scope: list = None, context_path: str = None) -> Nav
             candidates=[{"path": c.path, "label": c.label, "score": round(min(c.score, 0.5), 4)} for c in candidates[:3]],
         )
 
-    # MISS
-    hp.record_miss(query, site)
+    # MISS — _log writes the nav_query_log row; record_miss is not called here
+    # to avoid the duplicate INSERT that was previously caused by hot_path.record_miss.
     ms = _ms(start)
     _log(query, None, "MISS", 0.0, ms, site, context_path)
     return NavigationResult(None, None, 0.0, "MISS", ms, suggestion="No match found")
