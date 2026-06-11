@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _PII_SUBS = [
     (re.compile(r'\b\d{13}\b'), '[sa-id]'),
     (re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b'), '[email]'),
-    (re.compile(r'\b(?:\+27|0)\s?\d{2}\s?\d{3}\s?\d{4}\b'), '[phone]'),
+    (re.compile(r'(?<!\d)(?:\+27|0)[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{4}(?!\d)'), '[phone]'),
     (re.compile(r'\b(?:\d[ \-]?){13,16}\b'), '[card]'),
 ]
 
