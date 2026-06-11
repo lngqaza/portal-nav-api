@@ -669,60 +669,147 @@
     if (e.target === overlay) close();
   });
 
-  // ── Self-discovery ───────────────────────────────────────────────────────────
-  // The widget knows the page it's on — so pages index themselves. On first
-  // visit per browser session the DOM's title, meta description, headings,
-  // and action texts are reported to /discover; the server skips re-indexing
-  // unless the content changed. Opt out with data-discover="off".
+  // ── Self-discovery + background site crawl ──────────────────────────────────
+  // The widget knows the page it's on — so pages index themselves. Beyond
+  // that, it quietly follows the site's own same-origin links in the
+  // background, so one visit to any page indexes the whole site. The server
+  // skips re-indexing unless a page's content hash changed.
+  //   data-discover="on"   (default) index this page AND crawl linked pages
+  //   data-discover="self" index only the page being viewed
+  //   data-discover="off"  no discovery at all
 
-  function discoverSelf() {
-    if ((scriptEl.getAttribute('data-discover') || 'on') === 'off') return;
-    var pagePath = window.location.pathname || '/';
-    var sessionKey = 'nav_discovered:' + cfg.cacheVersion + ':' + pagePath;
-    try { if (sessionStorage.getItem(sessionKey)) return; } catch (e) { /* continue without dedup */ }
+  var discoverMode = scriptEl.getAttribute('data-discover') || 'on';
+  var CRAWL_MAX_PAGES = parseInt(scriptEl.getAttribute('data-discover-max') || '30', 10);
+  var CRAWL_SPACING_MS = 1000;  // one background fetch per second — invisible to the visitor
 
-    var h1 = document.querySelector('h1');
-    var siteName = document.querySelector('meta[property="og:site_name"]');
+  /**
+   * Extract an indexable payload from a Document.
+   * @param {Document} doc
+   * @param {string} pagePath
+   * @returns {{path:string,label:string,description:string,tags:string[]}|null}
+   */
+  function extractPage(doc, pagePath) {
+    var h1 = doc.querySelector('h1');
     // Title cleaned of " | Site" / " — Site" suffixes
-    var title = (document.title || '').split(/\s*[|—–-]\s+/)[0].trim();
-    var label = (h1 && h1.textContent.trim()) || title;
-    if (!label) return; // nothing meaningful to index yet
+    var title = (doc.title || '').split(/\s*[|—–-]\s+/)[0].trim();
+    var label = (h1 && h1.textContent.replace(/\s+/g, ' ').trim()) || title;
+    if (!label) return null; // nothing meaningful to index
 
-    var metaDesc = document.querySelector('meta[name="description"]');
+    var metaDesc = doc.querySelector('meta[name="description"]');
+    var siteName = doc.querySelector('meta[property="og:site_name"]');
     var heads = [];
-    document.querySelectorAll('h2, h3').forEach(function (el) {
+    doc.querySelectorAll('h2, h3').forEach(function (el) {
       var t = el.textContent.replace(/\s+/g, ' ').trim();
       if (t && heads.indexOf(t) < 0 && heads.length < 8) heads.push(t);
     });
     var actions = [];
-    document.querySelectorAll('button, a[href], [role="button"]').forEach(function (el) {
+    doc.querySelectorAll('button, a[href], [role="button"]').forEach(function (el) {
       var t = el.textContent.replace(/\s+/g, ' ').trim();
       if (t && t.length >= 3 && t.length <= 40 && actions.indexOf(t) < 0 && actions.length < 8) actions.push(t);
     });
 
-    var payload = {
+    var tags = heads.concat(actions).slice(0, 12);
+    if (siteName && siteName.content) tags.unshift(siteName.content.trim().toLowerCase());
+    return {
       path: pagePath,
       label: label.slice(0, 120),
       description: ((metaDesc && metaDesc.content) || heads.join('. ')).slice(0, 400),
-      tags: heads.concat(actions).slice(0, 12),
+      tags: tags,
     };
-    if (siteName && siteName.content) payload.tags.unshift(siteName.content.trim().toLowerCase());
+  }
 
-    fetch(cfg.apiUrl + '/discover', {
+  function discoveredKey(path) {
+    return 'nav_discovered:' + cfg.cacheVersion + ':' + path;
+  }
+
+  function alreadyDiscovered(path) {
+    try { return !!sessionStorage.getItem(discoveredKey(path)); } catch (e) { return false; }
+  }
+
+  function markDiscovered(path) {
+    try { sessionStorage.setItem(discoveredKey(path), '1'); } catch (e) {}
+  }
+
+  /** Report one extracted page to the API. Returns a promise. */
+  function reportPage(payload) {
+    return fetch(cfg.apiUrl + '/discover', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': cfg.apiKey },
       body: JSON.stringify(payload),
       keepalive: true,
-    }).then(function () {
-      try { sessionStorage.setItem(sessionKey, '1'); } catch (e) {}
-    }).catch(function () { /* non-critical — retry next page view */ });
+    }).then(function () { markDiscovered(payload.path); });
+  }
+
+  /**
+   * Collect crawlable same-origin page paths from a Document.
+   * Skips fragments, downloads, and non-HTML assets.
+   */
+  function collectLinks(doc) {
+    var paths = [];
+    doc.querySelectorAll('a[href]').forEach(function (a) {
+      var href = a.getAttribute('href');
+      if (!href || /^(#|mailto:|tel:|javascript:)/i.test(href)) return;
+      var u;
+      try { u = new URL(href, window.location.href); } catch (e) { return; }
+      if (u.origin !== window.location.origin) return;
+      var p = u.pathname;
+      if (/\.(png|jpe?g|gif|svg|css|js|pdf|zip|docx?|xlsx?|mp4|webp|ico)$/i.test(p)) return;
+      if (paths.indexOf(p) < 0) paths.push(p);
+    });
+    return paths;
+  }
+
+  function discoverSite() {
+    if (discoverMode === 'off') return;
+
+    var here = window.location.pathname || '/';
+    if (!alreadyDiscovered(here)) {
+      var selfPayload = extractPage(document, here);
+      if (selfPayload) reportPage(selfPayload).catch(function () {});
+    }
+
+    if (discoverMode === 'self') return;
+
+    // Breadth-first background crawl of same-origin links, capped and paced.
+    var queue = collectLinks(document).filter(function (p) { return p !== here; });
+    var seen = {}; seen[here] = true;
+    var processed = 0;
+
+    function next() {
+      if (processed >= CRAWL_MAX_PAGES || !queue.length) return;
+      var path = queue.shift();
+      if (seen[path]) { next(); return; }
+      seen[path] = true;
+
+      if (alreadyDiscovered(path)) { next(); return; }
+      processed++;
+
+      fetch(path, { credentials: 'same-origin' })
+        .then(function (r) {
+          var type = r.headers.get('content-type') || '';
+          if (!r.ok || type.indexOf('html') < 0) throw new Error('not html');
+          return r.text();
+        })
+        .then(function (html) {
+          var doc = new DOMParser().parseFromString(html, 'text/html');
+          var payload = extractPage(doc, path);
+          // Widen the frontier with links found on the crawled page
+          collectLinks(doc).forEach(function (p) {
+            if (!seen[p] && queue.indexOf(p) < 0) queue.push(p);
+          });
+          return payload ? reportPage(payload) : null;
+        })
+        .catch(function () { /* page errored — skip it */ })
+        .then(function () { setTimeout(next, CRAWL_SPACING_MS); });
+    }
+    setTimeout(next, CRAWL_SPACING_MS);
   }
 
   // Defer until the page is idle so discovery never competes with rendering
   if (document.readyState === 'complete') {
-    setTimeout(discoverSelf, 2000);
+    setTimeout(discoverSite, 2000);
   } else {
-    window.addEventListener('load', function () { setTimeout(discoverSelf, 2000); });
+    window.addEventListener('load', function () { setTimeout(discoverSite, 2000); });
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
