@@ -139,14 +139,7 @@ jobs:
         env:
           IMAGE_URI: ${{ needs.build.outputs.image_uri }}
         run: |
-          ENV_VARS=$(python3 -c "
-import json, sys
-print(json.dumps({'Variables': {
-  'DATABASE_URL': '${{ secrets.NAV_DATABASE_URL }}',
-  'API_KEYS':     '${{ secrets.NAV_API_KEYS }}',
-  'ADMIN_TOKEN':  '${{ secrets.NAV_ADMIN_TOKEN }}',
-  'SERVICE_VERSION': '${{ github.sha }}'
-}}))")
+          ENV_VARS=$(python3 -c "import json; print(json.dumps({'Variables': {'DATABASE_URL': '${{ secrets.NAV_DATABASE_URL }}', 'API_KEYS': '${{ secrets.NAV_API_KEYS }}', 'ADMIN_TOKEN': '${{ secrets.NAV_ADMIN_TOKEN }}', 'SERVICE_VERSION': '${{ github.sha }}'} }))")
 
           EXISTS=$(aws lambda get-function --function-name $FUNCTION_NAME \
             --query 'Configuration.FunctionArn' --output text 2>/dev/null || echo "")
