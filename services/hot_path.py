@@ -38,7 +38,7 @@ def lookup(query: str, scope: list = None) -> Optional[HotPathResult]:
                     WHERE site_id = ANY(%s)
                     ORDER BY (
                         hit_count
-                        * CASE WHEN last_hit_at > now() - interval '30 days' THEN 1.0 ELSE 0.5 END
+                        * EXP(-GREATEST(EXTRACT(EPOCH FROM (now() - COALESCE(last_hit_at, now()))) / 86400.0, 0) / 30.0)
                         + CASE WHEN pinned THEN 10000 ELSE 0 END
                     ) DESC
                     LIMIT %s

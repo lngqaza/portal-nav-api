@@ -63,14 +63,28 @@ def handle_batch(body: dict, scope: list = None, request_id: str = "-") -> dict:
     if len(queries) > BATCH_MAX_QUERIES:
         return _r(400, {"error": f"Maximum {BATCH_MAX_QUERIES} queries per batch"})
 
+    # Deduplicate: identical queries (case-insensitive, trimmed) resolve once
+    # and the result is fanned back out to all original positions.
+    seen: dict = {}
+    unique_queries = []
+    for q in queries:
+        key = str(q).strip().lower()
+        if key not in seen:
+            seen[key] = len(unique_queries)
+            unique_queries.append(str(q))
+    # unique_queries preserves first-occurrence order
+
     def _run(q: str) -> dict:
         if len(q) > MAX_QUERY_LENGTH:
             return {"error": "query too long", "layer": "ERROR", "path": None,
                     "label": None, "confidence": 0.0, "response_ms": 0}
         return route_query(q, scope, request_id=request_id).to_dict()
 
-    with ThreadPoolExecutor(max_workers=min(len(queries), 5)) as executor:
-        results = list(executor.map(lambda q: _run(str(q)), queries))
+    with ThreadPoolExecutor(max_workers=min(len(unique_queries), 5)) as executor:
+        unique_results = list(executor.map(_run, unique_queries))
+
+    # Fan results back out: each original query maps to its deduplicated result
+    results = [unique_results[seen[str(q).strip().lower()]] for q in queries]
 
     return _r(200, results)
 

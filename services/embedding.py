@@ -1,6 +1,7 @@
 """L1: ONNX sentence-transformer — encode + cosine search against nav_index."""
 import logging
 import os
+import threading
 from typing import List, Optional
 
 import numpy as np
@@ -13,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 _session = None
 _tokenizer = None
+# ONNX InferenceSession is NOT thread-safe for concurrent run() calls.
+# All encode() calls acquire this lock so Lambda's ThreadPoolExecutor
+# (used by handle_batch) cannot corrupt the session state.
+_lock = threading.Lock()
 
 
 def load_model():
@@ -36,10 +41,10 @@ def encode(text: str) -> Optional[np.ndarray]:
         return None
     try:
         enc = _tokenizer(text, padding=True, truncation=True, max_length=128, return_tensors="np")
-        # Filter to only inputs the ONNX model actually accepts (e.g. no token_type_ids)
         valid_inputs = {inp.name for inp in _session.get_inputs()}
         model_inputs = {k: v for k, v in enc.items() if k in valid_inputs}
-        out = _session.run(None, model_inputs)
+        with _lock:
+            out = _session.run(None, model_inputs)
         mask = enc["attention_mask"][:, :, None].astype(np.float32)
         emb = (out[0] * mask).sum(1) / mask.sum(1).clip(min=1e-9)
         norms = np.linalg.norm(emb, axis=1, keepdims=True)

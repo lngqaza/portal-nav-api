@@ -40,12 +40,16 @@ if os.environ.get("LAMBDA_TASK_ROOT"):
             "Set it in the Lambda environment variables."
         )
 
-# CORS origins — comma-separated list from env, defaulting to open for backwards
-# compatibility (widget is embedded in third-party portals we don't control).
-# Set CORS_ORIGINS to a comma-separated allowlist in production where possible.
+# CORS origins — comma-separated allowlist from CORS_ORIGINS env var.
+# Hard-fail at cold start if absent or wildcard in Lambda runtime — an open
+# CORS policy exposes admin endpoints to cross-origin JS on any page.
 _raw_cors = os.environ.get("CORS_ORIGINS", "").strip()
-# Fall back to open CORS only when env var is absent or empty — set
-# CORS_ORIGINS in Lambda env (NAV_CORS_ORIGINS GitHub secret) for production.
+if os.environ.get("LAMBDA_TASK_ROOT"):
+    if not _raw_cors or _raw_cors == "*":
+        raise RuntimeError(
+            "CORS_ORIGINS must be set to a comma-separated list of allowed origins "
+            "(not '*') in the Lambda environment variables."
+        )
 _CORS_ORIGINS = (
     set(o.strip() for o in _raw_cors.split(",") if o.strip())
     if _raw_cors else {"*"}

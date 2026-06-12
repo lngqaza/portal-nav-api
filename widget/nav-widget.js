@@ -223,6 +223,12 @@
   var currentItems   = [];   // { path, label, score, source }
   var isOpen         = false;
 
+  // Degraded mode: track consecutive API failures. After 3 failures the widget
+  // switches to localStorage-only mode and shows a "limited mode" banner.
+  var _failCount     = 0;
+  var FAIL_THRESHOLD = 3;
+  var _degraded      = false;
+
   // ── Rendering ────────────────────────────────────────────────────────────────
 
   /**
@@ -382,6 +388,72 @@
   // ── API call ─────────────────────────────────────────────────────────────────
 
   /**
+   * Show a "limited mode" banner above the results area.
+   */
+  function _showLimitedBanner() {
+    var existing = document.getElementById('nav-limited-banner');
+    if (existing) return;
+    var banner = document.createElement('div');
+    banner.id = 'nav-limited-banner';
+    banner.style.cssText = 'background:#fff8e1;border-bottom:1px solid #ffe082;padding:8px 18px;font-size:12px;color:#795548;display:flex;align-items:center;gap:6px';
+    banner.innerHTML = '<span>⚠️</span><span>Navigation service unavailable — showing saved results only.</span>';
+    var palette = document.getElementById('nav-palette');
+    var inputWrap = document.getElementById('nav-input-wrap');
+    palette.insertBefore(banner, inputWrap.nextSibling);
+  }
+
+  /**
+   * Try to surface learned paths from localStorage as fallback results.
+   * @param {string} q  Current query
+   */
+  function _showDegradedResults(q) {
+    var map = lsGet(LEARN_KEY) || {};
+    var now = Date.now();
+    // Find any learned path whose key contains the query words
+    var qWords = normalise(q).split(' ').filter(function (w) { return w.length > 1; });
+    var matches = [];
+    Object.keys(map).forEach(function (key) {
+      var entry = map[key];
+      if (now - entry.ts > LEARN_MAX_AGE_MS) return;
+      var score = qWords.filter(function (w) { return key.indexOf(w) >= 0; }).length;
+      if (score > 0) matches.push({ path: entry.path, label: entry.label, score: entry.confidence, source: 'learned', _match: score });
+    });
+    if (matches.length) {
+      matches.sort(function (a, b) { return b._match - a._match || b.score - a.score; });
+      showResults(matches.slice(0, 3), false);
+    } else {
+      var recent = (lsGet(RECENT_KEY) || []).slice(0, 3).map(function (r) {
+        return { path: r.path, label: r.label, score: 0.5, source: 'recent' };
+      });
+      if (recent.length) {
+        showResults(recent, false);
+      } else {
+        showStatus('📡', '<strong>Navigation service unavailable.</strong><br>No saved results found. Use the main menu to browse.');
+      }
+    }
+  }
+
+  /**
+   * Handle an API failure: increment the failure counter, enter degraded mode
+   * after FAIL_THRESHOLD consecutive failures, and surface localStorage fallback.
+   * @param {string} q           Current query
+   * @param {string} icon        Status icon for the fallback message
+   * @param {string} defaultHtml Status message if no localStorage results are available
+   */
+  function _handleFailure(q, icon, defaultHtml) {
+    _failCount++;
+    if (_failCount >= FAIL_THRESHOLD && !_degraded) {
+      _degraded = true;
+    }
+    if (_degraded) {
+      _showLimitedBanner();
+      _showDegradedResults(q);
+    } else {
+      showStatus(icon, defaultHtml);
+    }
+  }
+
+  /**
    * Call POST /query with the current input value.
    * Checks the learned-path cache first — if a confident match exists, navigates
    * immediately without an API round-trip.
@@ -410,6 +482,14 @@
     xhr.onload = function () {
       spinner.classList.remove('nav-visible');
 
+      // Any response (even 4xx) means the service is reachable — reset failure counter
+      if (xhr.status < 500) {
+        _failCount = 0;
+        _degraded = false;
+        var banner = document.getElementById('nav-limited-banner');
+        if (banner) banner.parentNode.removeChild(banner);
+      }
+
       if (xhr.status === 401 || xhr.status === 403) {
         showStatus('🔒', '<strong>Authentication error.</strong><br>The widget API key is invalid or has been revoked. Please contact your administrator.');
         return;
@@ -421,7 +501,7 @@
       }
 
       if (xhr.status >= 500) {
-        showStatus('⚠️', '<strong>Navigation service unavailable.</strong><br>This is a temporary issue. You can still browse manually — try the main menu or use the search bar.');
+        _handleFailure(q, '⚠️', '<strong>Navigation service unavailable.</strong><br>This is a temporary issue. You can still browse manually — try the main menu or use the search bar.');
         return;
       }
 
@@ -474,7 +554,7 @@
 
     xhr.onerror = function () {
       spinner.classList.remove('nav-visible');
-      showStatus('📡',
+      _handleFailure(q, '📡',
         '<strong>Could not reach the navigation service.</strong><br>' +
         'Check your internet connection. You can still use the main menu to browse.'
       );
@@ -482,7 +562,7 @@
 
     xhr.ontimeout = function () {
       spinner.classList.remove('nav-visible');
-      showStatus('⏱️',
+      _handleFailure(q, '⏱️',
         '<strong>Navigation service took too long to respond.</strong><br>' +
         'This is likely a temporary issue. Please try again in a moment.'
       );

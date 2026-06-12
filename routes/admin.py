@@ -17,7 +17,7 @@ from services.miss_mining import get_miss_report
 _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
 _BLOCKED_HOSTS = frozenset([
     '169.254.169.254', 'metadata.google.internal',
-    'instance-data', 'localhost', '0.0.0.0',
+    'instance-data', 'localhost', '0.0.0.0', '127.0.0.1',
 ])
 
 
@@ -64,6 +64,34 @@ def _validate_sitemap_url(url: str) -> None:
         # Not an IP literal — hostname check passed
 
 
+def _audit(action: str, resource: str, site: str, payload: dict = None):
+    """Append one row to nav_audit_log for every admin write operation.
+
+    Silently swallowed on failure — the write must not block the primary response.
+    payload is stored as JSON; any value that can't be serialised is replaced
+    with '<unserializable>' so the log row is always written.
+    """
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    try:
+        safe_payload = None
+        if payload:
+            try:
+                safe_payload = json.dumps(payload, default=str)[:4000]
+            except Exception:
+                safe_payload = '<unserializable>'
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO nav_audit_log (site_id, action, resource, payload) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (site or 'default', action, resource, safe_payload),
+                )
+            conn.commit()
+    except Exception as exc:
+        _log.warning("audit log write failed: %s", exc)
+
+
 def _r(status, data):
     return {
         "statusCode": status,
@@ -85,7 +113,9 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         return _r(200, get_top_paths(_safe_int(params.get("limit", 70), 70), site=site))
 
     if path == "/admin/hot-paths" and method == "POST":
-        return _r(200, upsert_path(body))
+        result = upsert_path(body)
+        _audit("POST", path, body.get("site", "default"), body)
+        return _r(200, result)
 
     if path.startswith("/admin/hot-paths/") and not path.endswith("/pin"):
         pid = _validate_uuid(path.split("/")[-1])
@@ -97,12 +127,14 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                         (body.get("label"), body.get("aliases", []), body.get("pinned", False), pid),
                     )
                 conn.commit()
+            _audit("PUT", path, params.get("site", "default"), body)
             return _r(200, {"updated": pid})
         if method == "DELETE":
             with get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute("DELETE FROM nav_hot_paths WHERE id=%s", (pid,))
                 conn.commit()
+            _audit("DELETE", path, params.get("site", "default"), {"id": pid})
             return _r(200, {"deleted": pid})
 
     if path.startswith("/admin/hot-paths/") and path.endswith("/pin") and method == "POST":
@@ -111,6 +143,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
             with conn.cursor() as cur:
                 cur.execute("UPDATE nav_hot_paths SET pinned=true WHERE id=%s", (pid,))
             conn.commit()
+        _audit("POST", path, params.get("site", "default"), {"id": pid, "pinned": True})
         return _r(200, {"pinned": pid})
 
     if path == "/admin/hot-paths/evict" and method == "POST":
@@ -141,6 +174,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
 
     if path == "/admin/index" and method == "POST":
         index_page(body["path"], body["label"], body.get("description", ""), body.get("tags", []))
+        _audit("POST", path, body.get("site", "default"), body)
         return _r(200, {"indexed": body["path"]})
 
     if path.startswith("/admin/index/") and method == "DELETE":
@@ -149,6 +183,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM nav_index WHERE id=%s", (iid,))
             conn.commit()
+        _audit("DELETE", path, params.get("site", "default"), {"id": iid})
         return _r(200, {"deleted": iid})
 
     if path == "/admin/index/reindex-all" and method == "POST":
@@ -202,7 +237,18 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                 cast_val = cast(val)
                 setattr(settings, k, cast_val)
                 updated[k] = cast_val
-        # Persist to nav_config so changes survive Lambda cold starts.
+        # Per-tenant overrides: keys of the form {"site": "<id>", "L1_THRESHOLD": 0.8}
+        site_key = body.get("site")
+        if site_key:
+            site_overrides = getattr(settings, "SITE_OVERRIDES", {})
+            site_overrides.setdefault(site_key, {})
+            for k, cast in mapping.items():
+                val = body.get(k) or body.get(k.lower())
+                if val is not None:
+                    cast_val = cast(val)
+                    site_overrides[site_key][k] = cast_val
+                    updated[f"{site_key}:{k}"] = cast_val
+            settings.SITE_OVERRIDES = site_overrides
         if updated:
             with get_conn() as conn:
                 with conn.cursor() as cur:
@@ -216,6 +262,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                             (k, str(v)),
                         )
                 conn.commit()
+        _audit("PUT", path, site_key or "default", body)
         return _r(200, {"updated": updated})
 
     # ── Bulk index ───────────────────────────────────────────────────────────

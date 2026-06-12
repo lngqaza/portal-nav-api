@@ -20,10 +20,22 @@ logger = logging.getLogger(__name__)
 # SA ID numbers (13 digits), email addresses, phone numbers, and payment card
 # numbers are the most likely PII to appear in accidental free-text queries.
 _PII_SUBS = [
-    (re.compile(r'\b\d{13}\b'), '[sa-id]'),
+    # SA ID: 13 consecutive digits OR 13 digits separated by dashes (e.g. 9001015009087 or 900101-5009-087)
+    (re.compile(r'\b\d{6}[\-\s]?\d{4}[\-\s]?\d{3}\b'), '[sa-id]'),
+    # Email
     (re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b'), '[email]'),
+    # Phone (SA): +27 or 0 prefix
     (re.compile(r'(?<!\d)(?:\+27|0)[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{4}(?!\d)'), '[phone]'),
+    # Payment card (13–16 digit, space/dash separated)
     (re.compile(r'\b(?:\d[ \-]?){13,16}\b'), '[card]'),
+    # Bank account numbers: matched BEFORE policy-no so the contextual pattern
+    # wins when the prefix keyword is present (e.g. "account number 12345678").
+    (re.compile(r'(?i)\b(?:account|acc(?:ount)?|acct)\s*(?:no\.?|number|#)?\s*[:\-]?\s*\d{6,11}(?!\d)'), '[acct-no]'),
+    # CVV: keyword "cvv"/"cvc" followed by up to 15 non-digit chars then 3-4 digits
+    (re.compile(r'(?i)\b(?:cvv2?|cvc)\b[^0-9]{0,15}\d{3,4}(?!\d)'), '[cvv]'),
+    # Policy numbers: 8–10 standalone digits (common Sanlam/Discovery format)
+    # Runs after acct-no so "account number 12345678" uses the contextual label.
+    (re.compile(r'(?<!\d)\d{8,10}(?!\d)'), '[policy-no]'),
 ]
 
 
@@ -50,6 +62,12 @@ def route_query(query: str, scope: list = None, context_path: str = None,
     scope = scope or ["default"]
     site = scope[0]  # home site — all writes (logs, misses, learning) go here
     start = time.monotonic()
+
+    # Resolve per-tenant threshold overrides (cold-start loaded from nav_config).
+    _site_cfg = getattr(settings, "SITE_OVERRIDES", {}).get(site, {})
+    _l1_threshold = _site_cfg.get("L1_THRESHOLD", settings.L1_THRESHOLD)
+    _l2_threshold = _site_cfg.get("L2_THRESHOLD", settings.L2_THRESHOLD)
+    _hp_threshold = _site_cfg.get("HOT_PATH_THRESHOLD", settings.HOT_PATH_THRESHOLD)
 
     # NLU preprocessing — reduce conversational questions to their intent
     # core so every layer matches meaning, not phrasing, then snap typos to
@@ -83,7 +101,7 @@ def route_query(query: str, scope: list = None, context_path: str = None,
                 c.score = min(c.score * settings.CONTEXT_BOOST_FACTOR, 1.0)
         candidates.sort(key=lambda c: -c.score)
 
-    if candidates and candidates[0].score >= settings.L1_THRESHOLD:
+    if candidates and candidates[0].score >= _l1_threshold:
         top = candidates[0]
         ms = _ms(start)
         _log(query, top.path, "L1", top.score, ms, site, context_path, request_id)
@@ -94,7 +112,7 @@ def route_query(query: str, scope: list = None, context_path: str = None,
 
     # L2 — cross-encoder re-ranker (~180ms, only when L1 has candidates but low confidence)
     if candidates:
-        best = rer.rerank(core, candidates)
+        best = rer.rerank(core, candidates, threshold=_l2_threshold)
         if best:
             ms = _ms(start)
             _log(query, best.path, "L2", best.score, ms, site, context_path, request_id)
@@ -128,6 +146,15 @@ def route_query(query: str, scope: list = None, context_path: str = None,
             top.path, top.label, min(top.score, 0.5), "L4", ms,
             candidates=[{"path": c.path, "label": c.label, "score": round(min(c.score, 0.5), 4)} for c in candidates[:3]],
         )
+
+    # Path alias check: before declaring a full MISS, see if the query matches
+    # a known old/vanity path that has been redirected in nav_path_aliases.
+    # This catches post-restructure navigation gracefully without manual hot-path updates.
+    alias_result = _alias_lookup(core, scope)
+    if alias_result:
+        ms = _ms(start)
+        _log(query, alias_result["new_path"], "L0", 0.95, ms, site, context_path, request_id)
+        return NavigationResult(alias_result["new_path"], alias_result["new_path"], 0.95, "L0", ms)
 
     # MISS — emit CloudWatch EMF metric for real-time alerting on MISS rate spikes.
     # CloudWatch EMF requires structured JSON on stdout — this is intentional,
@@ -200,6 +227,31 @@ def _keyword_fallback(core: str, scope: list) -> list:
 
 def _ms(start: float) -> int:
     return int((time.monotonic() - start) * 1000)
+
+
+def _alias_lookup(core: str, scope: list) -> Optional[dict]:
+    """Check nav_path_aliases for a redirect matching the query core.
+
+    Strips leading slash and checks both the raw core and cleaned path form
+    so "old dashboard" and "/old-dashboard" both resolve.
+    Returns {"new_path": str} or None.
+    """
+    # Normalise: replace spaces with dashes, strip punctuation for path matching
+    slug = re.sub(r'[^a-z0-9/\-]', '', core.lower().replace(' ', '-')).strip('-')
+    candidates_to_try = list({core.lower().strip(), '/' + slug, slug})
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT new_path FROM nav_path_aliases "
+                    "WHERE site_id = ANY(%s) AND lower(old_path) = ANY(%s) LIMIT 1",
+                    (scope, candidates_to_try),
+                )
+                row = cur.fetchone()
+        return {"new_path": row[0]} if row else None
+    except Exception as e:
+        logger.warning("alias lookup failed: %s", e)
+        return None
 
 
 def _log(query: str, path: Optional[str], layer: str, confidence: float, ms: int,

@@ -74,7 +74,9 @@ class get_conn:
     def __enter__(self):
         if _pool is None:
             raise RuntimeError("DB pool not initialised")
-        self._conn = _pool.getconn()
+        # Timeout=5 fast-fails under load instead of blocking the Lambda
+        # thread for the default 60 s while all connections are in use.
+        self._conn = _pool.getconn(timeout=5)
         return self._conn
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -259,13 +261,68 @@ def _run_migrations():
     CREATE INDEX IF NOT EXISTS idx_nav_index_embedding
         ON nav_index USING hnsw (embedding vector_cosine_ops)
         WITH (m=16, ef_construction=64);
+
+    -- Audit log: immutable record of every admin write operation.
+    -- FAIS PoI 12 requires a complete trail of changes to customer-facing navigation.
+    CREATE TABLE IF NOT EXISTS nav_audit_log (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        site_id     VARCHAR(64) NOT NULL DEFAULT 'default',
+        action      VARCHAR(20) NOT NULL,   -- POST | PUT | DELETE | PATCH
+        resource    VARCHAR(200) NOT NULL,  -- e.g. /admin/hot-paths/<id>
+        actor       VARCHAR(200) DEFAULT 'admin',
+        payload     TEXT,                   -- JSON snapshot of request body (PII scrubbed)
+        created_at  TIMESTAMP DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_log_site_created ON nav_audit_log(site_id, created_at DESC);
+
+    -- Path alias / redirect table: maps old or vanity paths to current paths.
+    -- Query router checks this on MISS before returning no-match, allowing
+    -- seamless navigation even after portal restructuring.
+    CREATE TABLE IF NOT EXISTS nav_path_aliases (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        site_id     VARCHAR(64) NOT NULL DEFAULT 'default',
+        old_path    VARCHAR(500) NOT NULL,
+        new_path    VARCHAR(500) NOT NULL,
+        created_at  TIMESTAMP DEFAULT now()
+    );
+    DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'uq_path_aliases_site_old'
+        ) THEN
+            ALTER TABLE nav_path_aliases
+                ADD CONSTRAINT uq_path_aliases_site_old UNIQUE (site_id, old_path);
+        END IF;
+    END $$;
+    CREATE INDEX IF NOT EXISTS idx_path_aliases_lookup ON nav_path_aliases(site_id, old_path);
+
+    -- Per-tenant retention: honour site-specific retention_days from nav_config.
+    -- The DEFAULT 90-day sweep below is a safety net; the Python cold-start
+    -- code applies per-site values loaded from nav_config after this DDL block runs.
+    -- (Rows without a site-specific override are caught by the generic DELETE above.)
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # Bound DDL time: if a previous migration is holding a lock
-            # (e.g. a failed cold start), fail fast rather than blocking.
             cur.execute("SET lock_timeout = '3s'")
             cur.execute(ddl)
+            # Per-tenant retention: each site may configure its own retention_days
+            # in nav_config as "<site_id>:retention_days". Apply those deletes now.
+            cur.execute(
+                "SELECT key, value FROM nav_config WHERE key LIKE '%:retention_days'"
+            )
+            for key, value in cur.fetchall():
+                try:
+                    site = key.split(":retention_days")[0]
+                    days = int(value)
+                    cur.execute(
+                        "DELETE FROM nav_query_log WHERE site_id=%s AND created_at < now() - (interval '1 day' * %s)",
+                        (site, days),
+                    )
+                    cur.execute(
+                        "DELETE FROM nav_navigate_log WHERE site_id=%s AND created_at < now() - (interval '1 day' * %s)",
+                        (site, days),
+                    )
+                except Exception as exc:
+                    logger.warning("per-tenant retention failed for %s: %s", key, exc)
         conn.commit()
     logger.info("Migrations applied")
 
@@ -273,9 +330,9 @@ def _run_migrations():
 def _load_config_overrides():
     """Load operator-persisted config from nav_config into the settings singleton.
 
-    Allows PUT /admin/config changes to survive Lambda cold starts — values
-    written to nav_config take precedence over the env-var defaults in Settings.
-    Only whitelisted numeric keys are applied; unknown keys are ignored.
+    Global keys (no site prefix): override the process-wide Settings defaults.
+    Per-tenant keys (format "<site_id>:KEY"): stored in settings.SITE_OVERRIDES
+    dict — query_router loads them at request time for per-site threshold routing.
     """
     _CAST = {
         "MAX_HOT_PATHS": int,
@@ -288,9 +345,19 @@ def _load_config_overrides():
             with conn.cursor() as cur:
                 cur.execute("SELECT key, value FROM nav_config")
                 rows = cur.fetchall()
+        site_overrides: dict = {}
         for key, value in rows:
-            if key in _CAST:
+            if ":" in key:
+                # Per-tenant key: "<site_id>:THRESHOLD_NAME"
+                site, cfg_key = key.split(":", 1)
+                if cfg_key in _CAST:
+                    site_overrides.setdefault(site, {})[cfg_key] = _CAST[cfg_key](value)
+                    logger.info("per-tenant config: %s/%s = %s", site, cfg_key, value)
+            elif key in _CAST:
                 setattr(settings, key, _CAST[key](value))
                 logger.info("config override: %s = %s", key, value)
+        # Attach per-tenant overrides to the settings singleton so route_query
+        # can resolve them at request time without a DB round-trip.
+        settings.SITE_OVERRIDES = site_overrides
     except Exception as exc:
         logger.warning("_load_config_overrides failed (non-fatal): %s", exc)
