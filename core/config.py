@@ -65,6 +65,11 @@ class Settings:
     # ── Miss-mining tuning ───────────────────────────────────────────────────
     CLUSTER_SIMILARITY: float = float(os.environ.get("CLUSTER_SIMILARITY", "0.80"))
     MIN_CLUSTER_COUNT: int = int(os.environ.get("MIN_CLUSTER_COUNT", "1"))
+    # ── Per-tenant threshold overrides ───────────────────────────────────────
+    # Populated at cold start by _load_config_overrides() from nav_config rows
+    # with keys of the form "<site_id>:L1_THRESHOLD" etc.  Declared here so
+    # attribute access never raises AttributeError before the DB is ready.
+    SITE_OVERRIDES: dict = {}
 
 
 settings = Settings()

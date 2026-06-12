@@ -307,4 +307,79 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         site = params.get("site") or None
         return _r(200, get_miss_report(days, site))
 
+    # ── Audit log ─────────────────────────────────────────────────────────────
+    # GET /admin/audit-log?site=lumo&limit=50
+    if path == "/admin/audit-log" and method == "GET":
+        limit = _safe_int(params.get("limit", 50), 50)
+        site  = params.get("site") or None
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                if site:
+                    cur.execute(
+                        "SELECT id,site_id,action,resource,actor,payload,created_at "
+                        "FROM nav_audit_log WHERE site_id=%s ORDER BY created_at DESC LIMIT %s",
+                        (site, limit),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT id,site_id,action,resource,actor,payload,created_at "
+                        "FROM nav_audit_log ORDER BY created_at DESC LIMIT %s",
+                        (limit,),
+                    )
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        return _r(200, rows)
+
+    # ── Path aliases ──────────────────────────────────────────────────────────
+    # GET  /admin/aliases?site=lumo
+    # POST /admin/aliases  { "site": "lumo", "old_path": "/old", "new_path": "/new" }
+    # DELETE /admin/aliases/<id>
+    if path == "/admin/aliases" and method == "GET":
+        site = params.get("site") or None
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                if site:
+                    cur.execute(
+                        "SELECT id,site_id,old_path,new_path,created_at FROM nav_path_aliases "
+                        "WHERE site_id=%s ORDER BY created_at DESC",
+                        (site,),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT id,site_id,old_path,new_path,created_at FROM nav_path_aliases "
+                        "ORDER BY created_at DESC"
+                    )
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        return _r(200, rows)
+
+    if path == "/admin/aliases" and method == "POST":
+        old_path = (body.get("old_path") or "").strip()
+        new_path = (body.get("new_path") or "").strip()
+        site     = (body.get("site")     or "default").strip()
+        if not old_path or not new_path:
+            return _r(400, {"error": "old_path and new_path are required"})
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO nav_path_aliases (site_id, old_path, new_path) "
+                    "VALUES (%s,%s,%s) "
+                    "ON CONFLICT (site_id, old_path) DO UPDATE SET new_path=EXCLUDED.new_path "
+                    "RETURNING id",
+                    (site, old_path, new_path),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        _audit("POST", path, site, body)
+        return _r(200, {"id": str(row[0]), "old_path": old_path, "new_path": new_path})
+
+    if path.startswith("/admin/aliases/") and method == "DELETE":
+        aid = _validate_uuid(path.split("/")[-1])
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM nav_path_aliases WHERE id=%s", (aid,))
+            conn.commit()
+        _audit("DELETE", path, params.get("site", "default"), {"id": aid})
+        return _r(200, {"deleted": aid})
+
     return _r(404, {"error": f"Unknown admin route: {method} {path}"})

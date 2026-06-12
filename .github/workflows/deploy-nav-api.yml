@@ -142,8 +142,12 @@ jobs:
         env:
           IMAGE_URI: ${{ needs.build.outputs.image_uri }}
         run: |
+          # Hard-fail: NAV_CORS_ORIGINS must be set. handler.py raises RuntimeError
+          # at cold start when absent or '*', so an empty secret guarantees a
+          # broken deploy. Catch it here before burning an ECR image + alias advance.
           if [ -z "${{ secrets.NAV_CORS_ORIGINS }}" ]; then
-            echo "::warning::NAV_CORS_ORIGINS secret is not set — CORS defaults to open (*). Set this secret to a comma-separated allowlist for production."
+            echo "::error::NAV_CORS_ORIGINS secret is not set. Set it to a comma-separated allowlist (e.g. https://portal.example.com). Aborting deploy."
+            exit 1
           fi
           ENV_VARS=$(python3 -c "import json; print(json.dumps({'Variables': {'DATABASE_URL': '${{ secrets.NAV_DATABASE_URL }}', 'API_KEYS': '${{ secrets.NAV_API_KEYS }}', 'ADMIN_TOKEN': '${{ secrets.NAV_ADMIN_TOKEN }}', 'SERVICE_VERSION': '${{ github.sha }}', 'CORS_ORIGINS': '${{ secrets.NAV_CORS_ORIGINS }}'} }))")
 

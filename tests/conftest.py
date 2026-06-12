@@ -93,7 +93,8 @@ def clean_db(raw_conn):
     """
     with raw_conn.cursor() as cur:
         cur.execute(
-            "TRUNCATE nav_hot_paths, nav_index, nav_query_log, nav_config RESTART IDENTITY CASCADE"
+            "TRUNCATE nav_hot_paths, nav_index, nav_query_log, nav_config, "
+            "nav_navigate_log, nav_audit_log, nav_path_aliases RESTART IDENTITY CASCADE"
         )
     raw_conn.commit()
     yield raw_conn
