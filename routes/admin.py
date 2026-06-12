@@ -78,6 +78,14 @@ def _r(status, data):
     }
 
 
+_CONFIG_BOUNDS = {
+    "MAX_HOT_PATHS":      (int,   1,   1000),
+    "HOT_PATH_THRESHOLD": (float, 0.0, 1.0),
+    "L1_THRESHOLD":       (float, 0.0, 1.0),
+    "L2_THRESHOLD":       (float, 0.0, 1.0),
+}
+
+
 def handle_admin(path: str, method: str, body: dict, params: dict):
 
     # ── Hot paths ───────────────────────────────────────────────────────────
@@ -259,13 +267,6 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
             "SERVICE_VERSION": settings.SERVICE_VERSION,
             "API_KEYS_COUNT": len(settings.API_KEYS),
         })
-
-    _CONFIG_BOUNDS = {
-        "MAX_HOT_PATHS":      (int,   1,   1000),
-        "HOT_PATH_THRESHOLD": (float, 0.0, 1.0),
-        "L1_THRESHOLD":       (float, 0.0, 1.0),
-        "L2_THRESHOLD":       (float, 0.0, 1.0),
-    }
 
     if path == "/admin/config" and method == "PUT":
         mapping = {k: v[0] for k, v in _CONFIG_BOUNDS.items()}

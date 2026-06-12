@@ -108,11 +108,13 @@ def handle_suggest(q: str, scope: list = None) -> dict:
                 with conn.cursor() as cur:
                     ql = q.lower()
                     pat = f"%{ql}%"
+                    # Use a savepoint so a pg_trgm failure (extension absent
+                    # before migrations run) can be rolled back without aborting
+                    # the whole transaction — psycopg2 marks the connection as
+                    # InFailedSqlTransaction after any exception, so without
+                    # ROLLBACK TO SAVEPOINT the fallback execute would also fail.
+                    cur.execute("SAVEPOINT trgm_attempt")
                     try:
-                        # GIN trigram path — uses idx_nav_index_label_trgm /
-                        # idx_nav_index_desc_trgm created in migrations.
-                        # similarity() is a pg_trgm function; falls back to the
-                        # plain LIKE query below if the extension isn't installed.
                         cur.execute(
                             """
                             SELECT path, label,
@@ -128,9 +130,12 @@ def handle_suggest(q: str, scope: list = None) -> dict:
                             """,
                             (ql, ql, scope, pat, pat, scope[0]),
                         )
+                        cur.execute("RELEASE SAVEPOINT trgm_attempt")
                     except Exception:
-                        # pg_trgm not yet installed (pre-migration cold start or
-                        # unsupported RDS version) — fall back to plain LIKE.
+                        # pg_trgm not yet installed — roll back to savepoint so
+                        # the connection is no longer in an aborted state, then
+                        # fall back to plain LIKE (sequential scan, always works).
+                        cur.execute("ROLLBACK TO SAVEPOINT trgm_attempt")
                         cur.execute(
                             """
                             SELECT path, label FROM nav_index
