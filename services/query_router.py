@@ -232,20 +232,34 @@ def _ms(start: float) -> int:
 def _alias_lookup(core: str, scope: list) -> Optional[dict]:
     """Check nav_path_aliases for a redirect matching the query core.
 
-    Strips leading slash and checks both the raw core and cleaned path form
-    so "old dashboard" and "/old-dashboard" both resolve.
+    Tries the process-level ALIAS_CACHE first (O(1), no DB round-trip).
+    Falls through to a live DB query only on a cache miss or when the cache
+    is empty (e.g. before cold-start DB init completes).
+
+    Normalises the query core to both a bare string and a /slug form so
+    "old dashboard" and "/old-dashboard" both resolve.
     Returns {"new_path": str} or None.
     """
-    # Normalise: replace spaces with dashes, strip punctuation for path matching
     slug = re.sub(r'[^a-z0-9/\-]', '', core.lower().replace(' ', '-')).strip('-')
-    candidates_to_try = list({core.lower().strip(), '/' + slug, slug})
+    candidates = list({core.lower().strip(), '/' + slug, slug})
+
+    cache = getattr(settings, 'ALIAS_CACHE', {})
+    if cache:
+        for site in scope:
+            for c in candidates:
+                hit = cache.get((site, c))
+                if hit:
+                    return {"new_path": hit}
+        return None  # cache is warm and returned nothing — skip DB
+
+    # Cache not yet populated (pre-init path) — fall through to DB
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT new_path FROM nav_path_aliases "
                     "WHERE site_id = ANY(%s) AND lower(old_path) = ANY(%s) LIMIT 1",
-                    (scope, candidates_to_try),
+                    (scope, candidates),
                 )
                 row = cur.fetchone()
         return {"new_path": row[0]} if row else None

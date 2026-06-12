@@ -5,7 +5,7 @@ import re
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
-from core.db import get_conn
+from core.db import get_conn, load_alias_cache
 from core.config import settings
 from services.hot_path import get_top_paths, upsert_path, evict_cold_paths
 from services.embedding import index_page
@@ -387,6 +387,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                 row = cur.fetchone()
             conn.commit()
         _audit("POST", path, site, body)
+        settings.ALIAS_CACHE = load_alias_cache()
         return _r(200, {"id": str(row[0]), "old_path": old_path, "new_path": new_path})
 
     if path.startswith("/admin/aliases/") and method == "DELETE":
@@ -396,6 +397,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                 cur.execute("DELETE FROM nav_path_aliases WHERE id=%s", (aid,))
             conn.commit()
         _audit("DELETE", path, params.get("site", "default"), {"id": aid})
+        settings.ALIAS_CACHE = load_alias_cache()
         return _r(200, {"deleted": aid})
 
     return _r(404, {"error": f"Unknown admin route: {method} {path}"})

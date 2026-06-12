@@ -77,6 +77,10 @@ class Settings:
     # with keys of the form "<site_id>:L1_THRESHOLD" etc.  Declared here so
     # attribute access never raises AttributeError before the DB is ready.
     SITE_OVERRIDES: dict = {}
+    # Process-level alias cache: (site_id, lower(old_path)) → new_path.
+    # Populated at cold start by db.load_alias_cache(); invalidated and
+    # reloaded after any alias write via routes/admin.py.
+    ALIAS_CACHE: dict = {}
 
 
 settings = Settings()
