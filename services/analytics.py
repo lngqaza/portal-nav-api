@@ -10,11 +10,22 @@ from core.db import get_conn
 logger = logging.getLogger(__name__)
 
 
-def _log_params(window_start, site):
-    """Return (site_clause, params) for any nav_*_log table query."""
+def _where(window_start, site, prefix: str = "") -> tuple:
+    """Return (where_sql, params) for any nav_*_log table query.
+
+    All condition strings are hardcoded literals — user-supplied `site` is
+    only ever passed as a %s value, never interpolated into the SQL string.
+
+    Args:
+        prefix: Optional table-alias prefix, e.g. "n" for "n.created_at".
+    """
+    p = (prefix + ".") if prefix else ""
+    conditions = [f"{p}created_at >= %s"]
+    params: list = [window_start]
     if site:
-        return "AND site_id = %s", [window_start, site]
-    return "", [window_start]
+        conditions.append(f"{p}site_id = %s")
+        params.append(site)
+    return " AND ".join(conditions), params
 
 
 def get_analytics(days: int = 7, site: str = None) -> dict:
@@ -29,23 +40,22 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
         dict with keys: daily_queries, layer_breakdown, ctr_pct, top_queries, top_pages.
     """
     window_start = datetime.now(timezone.utc) - timedelta(days=days)
-    q_clause, q_params = _log_params(window_start, site)
-    n_clause, n_params = _log_params(window_start, site)
+    q_where, q_params = _where(window_start, site)
+    n_where, n_params = _where(window_start, site)
 
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 # Daily query volume + miss rate + avg response time
                 cur.execute(
-                    """
+                    f"""
                     SELECT
                         date_trunc('day', created_at)::date AS day,
                         COUNT(*) AS total,
                         COUNT(*) FILTER (WHERE layer_used = 'MISS') AS misses,
                         ROUND(AVG(response_ms)::numeric, 1) AS avg_ms
                     FROM nav_query_log
-                    WHERE created_at >= %s
-                    """ + (f" {q_clause}" if q_clause else "") + """
+                    WHERE {q_where}
                     GROUP BY 1
                     ORDER BY 1
                     """,
@@ -63,11 +73,10 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
 
                 # Layer breakdown over the whole window
                 cur.execute(
-                    """
+                    f"""
                     SELECT layer_used, COUNT(*) AS cnt
                     FROM nav_query_log
-                    WHERE created_at >= %s
-                    """ + (f" {q_clause}" if q_clause else "") + """
+                    WHERE {q_where}
                     GROUP BY layer_used
                     ORDER BY cnt DESC
                     """,
@@ -85,19 +94,13 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
 
                 # Click-through rate: navigations / non-MISS queries
                 cur.execute(
-                    """
-                    SELECT COUNT(*) FROM nav_query_log
-                    WHERE created_at >= %s AND layer_used != 'MISS'
-                    """ + (f" {q_clause}" if q_clause else ""),
+                    f"SELECT COUNT(*) FROM nav_query_log WHERE {q_where} AND layer_used != 'MISS'",
                     q_params,
                 )
                 matched = cur.fetchone()[0]
 
                 cur.execute(
-                    """
-                    SELECT COUNT(*) FROM nav_navigate_log
-                    WHERE created_at >= %s
-                    """ + (f" {n_clause}" if n_clause else ""),
+                    f"SELECT COUNT(*) FROM nav_navigate_log WHERE {n_where}",
                     n_params,
                 )
                 navigations = cur.fetchone()[0]
@@ -105,13 +108,12 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
 
                 # Top 20 queries (excluding MISS, most frequent)
                 cur.execute(
-                    """
+                    f"""
                     SELECT raw_query, COUNT(*) AS cnt,
                            MAX(layer_used) AS layer,
                            ROUND(AVG(confidence)::numeric, 3) AS avg_conf
                     FROM nav_query_log
-                    WHERE created_at >= %s AND layer_used != 'MISS'
-                    """ + (f" {q_clause}" if q_clause else "") + """
+                    WHERE {q_where} AND layer_used != 'MISS'
                     GROUP BY raw_query
                     ORDER BY cnt DESC
                     LIMIT 20
@@ -125,13 +127,12 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
 
                 # Top pages by navigation count with avg confidence
                 cur.execute(
-                    """
+                    f"""
                     SELECT navigated_path, label, COUNT(*) AS nav_count,
                            ROUND(AVG(confidence)::numeric, 3) AS avg_conf,
                            COUNT(DISTINCT raw_query) AS unique_queries
                     FROM nav_navigate_log
-                    WHERE created_at >= %s
-                    """ + (f" {n_clause}" if n_clause else "") + """
+                    WHERE {n_where}
                     GROUP BY navigated_path, label
                     ORDER BY nav_count DESC
                     LIMIT 20

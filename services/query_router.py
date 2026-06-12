@@ -286,9 +286,9 @@ def _log(query: str, path: Optional[str], layer: str, confidence: float, ms: int
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO nav_query_log "
-                    "(raw_query,matched_path,layer_used,confidence,response_ms,site_id,context_path) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                    (safe_query, path, layer, confidence, ms, site, safe_context),
+                    "(raw_query,matched_path,layer_used,confidence,response_ms,site_id,context_path,request_id) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (safe_query, path, layer, confidence, ms, site, safe_context, request_id),
                 )
             conn.commit()
     except Exception as e:

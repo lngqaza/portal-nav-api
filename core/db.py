@@ -231,6 +231,10 @@ def _run_migrations():
     -- Drives context-boost analysis and future personalization.
     ALTER TABLE nav_query_log ADD COLUMN IF NOT EXISTS context_path VARCHAR(500);
 
+    -- Lambda request ID: correlates a DB row with a specific CloudWatch Logs event.
+    -- VARCHAR(64) covers the standard 36-char UUID format with room to spare.
+    ALTER TABLE nav_query_log ADD COLUMN IF NOT EXISTS request_id VARCHAR(64);
+
     -- Audit trail: who/what last modified a hot-path row.
     -- action_source: 'api'|'auto-promote'|'alias-learn'|'evict'
     ALTER TABLE nav_hot_paths ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100) DEFAULT 'system';

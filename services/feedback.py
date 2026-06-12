@@ -178,13 +178,14 @@ def get_navigation_stats(days: int = 7, site: str = None) -> dict:
         dict with top_paths (list), total_navigations (int), promotion_candidates (list).
     """
     window_start = datetime.now(timezone.utc) - timedelta(days=days)
-    # Build parameterised clauses — never interpolate site into the SQL string.
+    # Build parameterised clauses — site value only ever travels through %s,
+    # never interpolated into the SQL string.
+    conditions = ["created_at >= %s"]
+    base_params: list = [window_start]
     if site:
-        site_filter = "AND site_id = %s"
-        base_params = (window_start, site)
-    else:
-        site_filter = ""
-        base_params = (window_start,)
+        conditions.append("site_id = %s")
+        base_params.append(site)
+    where = " AND ".join(conditions)
 
     try:
         with get_conn() as conn:
@@ -195,7 +196,7 @@ def get_navigation_stats(days: int = 7, site: str = None) -> dict:
                     SELECT navigated_path, label, COUNT(*) AS nav_count,
                            COUNT(DISTINCT raw_query) AS unique_queries
                     FROM nav_navigate_log
-                    WHERE created_at >= %s {site_filter}
+                    WHERE {where}
                     GROUP BY navigated_path, label
                     ORDER BY nav_count DESC
                     LIMIT 20
@@ -208,7 +209,7 @@ def get_navigation_stats(days: int = 7, site: str = None) -> dict:
                 ]
 
                 cur.execute(
-                    f"SELECT COUNT(*) FROM nav_navigate_log WHERE created_at >= %s {site_filter}",
+                    f"SELECT COUNT(*) FROM nav_navigate_log WHERE {where}",
                     base_params,
                 )
                 total = cur.fetchone()[0]

@@ -98,6 +98,7 @@ def handle_suggest(q: str, scope: list = None) -> dict:
     """
     from core.db import get_conn
     scope = scope or ["default"]
+    q = str(q or "").strip()[:200]  # cap before LIKE scan — unbounded q wastes DB
     results = []
     if q:
         try:

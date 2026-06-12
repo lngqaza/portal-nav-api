@@ -39,6 +39,13 @@ if os.environ.get("LAMBDA_TASK_ROOT"):
             "ADMIN_TOKEN must be set and at least 32 characters. "
             "Set it in the Lambda environment variables."
         )
+    # Fail fast if API_KEYS is empty — every query route requires a key,
+    # so an empty list silently makes the service entirely inaccessible.
+    if not settings.API_KEYS:
+        raise RuntimeError(
+            "API_KEYS must be set (comma-separated list of keys). "
+            "Set it in the Lambda environment variables."
+        )
 
 # CORS origins — comma-separated allowlist from CORS_ORIGINS env var.
 # Hard-fail at cold start if absent or wildcard in Lambda runtime — an open
