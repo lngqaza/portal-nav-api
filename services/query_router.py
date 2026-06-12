@@ -77,9 +77,9 @@ def route_query(query: str, scope: list = None, context_path: str = None,
 
     # L0 — hot path registry (~1ms). Try the raw query first (aliases may be
     # full phrases), then the intent core if stripping changed anything.
-    r0 = hp.lookup(query, scope)
+    r0 = hp.lookup(query, scope, threshold=_hp_threshold)
     if not r0 and core != query.lower().strip():
-        r0 = hp.lookup(core, scope)
+        r0 = hp.lookup(core, scope, threshold=_hp_threshold)
     if r0:
         ms = _ms(start)
         _log(query, r0.path, "L0", r0.confidence, ms, site, context_path, request_id)

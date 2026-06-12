@@ -24,8 +24,10 @@ def _sim(q: str, qn: str, target: str) -> float:
     return max(Levenshtein.ratio(q, t), Levenshtein.ratio(qn, _norm(t)))
 
 
-def lookup(query: str, scope: list = None) -> Optional[HotPathResult]:
+def lookup(query: str, scope: list = None, threshold: float = None) -> Optional[HotPathResult]:
     scope = scope or ["default"]
+    # Per-tenant threshold passed from query_router; falls back to global setting.
+    effective_threshold = threshold if threshold is not None else settings.HOT_PATH_THRESHOLD
     q = query.lower().strip()
     qn = _norm(q) or q
     try:
@@ -72,7 +74,7 @@ def lookup(query: str, scope: list = None) -> Optional[HotPathResult]:
         if score > best_score:
             best_score, best_row = score, row
 
-    if best_score >= settings.HOT_PATH_THRESHOLD and best_row:
+    if best_score >= effective_threshold and best_row:
         _increment_hit(str(best_row[0]))
         return HotPathResult(
             path=best_row[1], label=best_row[2],

@@ -157,5 +157,59 @@ describe('SHAPE-09: GET /query/suggest response shape', () => {
       expect(typeof body.layers).toBe('object');
       expect(Array.isArray(body.top_misses)).toBe(true);
     });
+
+    test('SHAPE-16: GET /admin/audit-log returns an array', async () => {
+      const { status, body } = await adminGet('/admin/audit-log?limit=5');
+      expect(status).toBe(200);
+      expect(Array.isArray(body)).toBe(true);
+    });
+
+    test('SHAPE-17: GET /admin/audit-log rows have required fields', async () => {
+      const { status, body } = await adminGet('/admin/audit-log?limit=5');
+      expect(status).toBe(200);
+      if (body.length > 0) {
+        ['id', 'site_id', 'action', 'resource', 'created_at'].forEach(f =>
+          expect(body[0]).toHaveProperty(f)
+        );
+      }
+    });
+
+    test('SHAPE-18: GET /admin/aliases returns an array', async () => {
+      const { status, body } = await adminGet('/admin/aliases?limit=5');
+      expect(status).toBe(200);
+      expect(Array.isArray(body)).toBe(true);
+    });
+
+    test('SHAPE-19: GET /admin/aliases rows have required fields', async () => {
+      const { status, body } = await adminGet('/admin/aliases?limit=5');
+      expect(status).toBe(200);
+      if (body.length > 0) {
+        ['id', 'site_id', 'old_path', 'new_path', 'created_at'].forEach(f =>
+          expect(body[0]).toHaveProperty(f)
+        );
+      }
+    });
+
+    test('SHAPE-20: POST /admin/aliases returns id, old_path, new_path', async () => {
+      const ts = Date.now();
+      const { status, body } = await adminPost('/admin/aliases', {
+        site: 'default',
+        old_path: `/shape-test-old-${ts}`,
+        new_path: `/shape-test-new-${ts}`,
+      });
+      expect(status).toBe(200);
+      expect(body).toHaveProperty('id');
+      expect(body).toHaveProperty('old_path');
+      expect(body).toHaveProperty('new_path');
+      // clean up
+      if (body.id) await adminGet(`/admin/aliases/${body.id}`);
+    });
+
+    test('SHAPE-21: GET /admin/aliases supports limit and offset pagination', async () => {
+      const { status, body } = await adminGet('/admin/aliases?limit=2&offset=0');
+      expect(status).toBe(200);
+      expect(Array.isArray(body)).toBe(true);
+      expect(body.length).toBeLessThanOrEqual(2);
+    });
   }
 );

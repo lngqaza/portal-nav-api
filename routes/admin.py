@@ -148,7 +148,14 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
 
     if path == "/admin/hot-paths/evict" and method == "POST":
         site = body.get("site") or None
-        return _r(200, {"evicted": evict_cold_paths(_safe_int(body.get("min_hits_per_week", 50), 50), site=site)})
+        try:
+            evicted = evict_cold_paths(_safe_int(body.get("min_hits_per_week", 50), 50), site=site)
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).error("evict_cold_paths failed: %s", exc)
+            return _r(500, {"error": "Internal server error"})
+        _audit("POST", path, site or "default", body)
+        return _r(200, {"evicted": evicted})
 
     # ── Index ────────────────────────────────────────────────────────────────
     if path == "/admin/index" and method == "GET":
@@ -195,6 +202,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                 rows = cur.fetchall()
         for row in rows:
             index_page(row[0], row[1], row[2] or "", row[3] or [])
+        _audit("POST", path, body.get("site", "default"), {"reindexed": len(rows)})
         return _r(200, {"reindexed": len(rows)})
 
     # ── Stats ────────────────────────────────────────────────────────────────
@@ -273,7 +281,9 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         pages = body.get("pages", [])
         if not pages or not isinstance(pages, list):
             return _r(400, {"error": "pages array is required"})
-        return _r(200, bulk_index(pages))
+        result = bulk_index(pages)
+        _audit("POST", path, body.get("site", "default"), {"page_count": len(pages)})
+        return _r(200, result)
 
     # ── Sitemap crawl ────────────────────────────────────────────────────────
     # POST /admin/index/crawl  { "sitemap_url": "https://...", "label_prefix": "" }
@@ -286,6 +296,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         except ValueError as exc:
             return _r(400, {"error": str(exc)})
         result = crawl_sitemap(sitemap_url, body.get("label_prefix", ""))
+        _audit("POST", path, body.get("site", "default"), {"sitemap_url": sitemap_url})
         return _r(200, result)
 
     # ── Navigation feedback stats ─────────────────────────────────────────────
@@ -337,19 +348,22 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     # POST /admin/aliases  { "site": "lumo", "old_path": "/old", "new_path": "/new" }
     # DELETE /admin/aliases/<id>
     if path == "/admin/aliases" and method == "GET":
-        site = params.get("site") or None
+        site   = params.get("site") or None
+        limit  = _safe_int(params.get("limit", 50), 50)
+        offset = _safe_int(params.get("offset", 0), 0)
         with get_conn() as conn:
             with conn.cursor() as cur:
                 if site:
                     cur.execute(
                         "SELECT id,site_id,old_path,new_path,created_at FROM nav_path_aliases "
-                        "WHERE site_id=%s ORDER BY created_at DESC",
-                        (site,),
+                        "WHERE site_id=%s ORDER BY created_at DESC LIMIT %s OFFSET %s",
+                        (site, limit, offset),
                     )
                 else:
                     cur.execute(
                         "SELECT id,site_id,old_path,new_path,created_at FROM nav_path_aliases "
-                        "ORDER BY created_at DESC"
+                        "ORDER BY created_at DESC LIMIT %s OFFSET %s",
+                        (limit, offset),
                     )
                 cols = [d[0] for d in cur.description]
                 rows = [dict(zip(cols, r)) for r in cur.fetchall()]
