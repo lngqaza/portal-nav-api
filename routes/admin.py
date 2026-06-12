@@ -1,24 +1,18 @@
 """Admin route handlers — CRUD for hot-paths, index, stats, config."""
-import ipaddress
 import json
 import re
-import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 from core.db import get_conn, load_alias_cache
 from core.config import settings
 from services.hot_path import get_top_paths, upsert_path, evict_cold_paths
 from services.embedding import index_page
-from services.crawler import crawl_sitemap, bulk_index
+from services.crawler import crawl_sitemap, bulk_index, validate_sitemap_url
 from services.feedback import get_navigation_stats
 from services.analytics import get_analytics
 from services.miss_mining import get_miss_report
 
 _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
-_BLOCKED_HOSTS = frozenset([
-    '169.254.169.254', 'metadata.google.internal',
-    'instance-data', 'localhost', '0.0.0.0', '127.0.0.1',
-])
 
 
 def _validate_uuid(value: str, field: str = "id") -> str:
@@ -28,40 +22,19 @@ def _validate_uuid(value: str, field: str = "id") -> str:
     return value
 
 
-def _safe_int(value, default: int) -> int:
-    """Parse value as int, returning default on failure."""
+_MAX_PAGE_LIMIT = 500
+
+
+def _safe_int(value, default: int, max_val: int = None) -> int:
+    """Parse value as int, clamped to [0, max_val] when max_val is provided."""
     try:
-        return int(value)
+        v = int(value)
     except (TypeError, ValueError):
         return default
+    if max_val is not None:
+        return min(max(v, 0), max_val)
+    return v
 
-
-def _validate_sitemap_url(url: str) -> None:
-    """Raise ValueError if url is not a safe public HTTPS URL.
-
-    Blocks RFC-1918 addresses, loopback, link-local, and known cloud metadata
-    endpoints to prevent SSRF attacks. Admin token auth is not sufficient alone
-    because a compromised admin token would allow credential exfil via crawl.
-    """
-    if not url.lower().startswith('https://'):
-        raise ValueError("sitemap_url must use HTTPS")
-    try:
-        parsed = urllib.parse.urlparse(url)
-    except Exception:
-        raise ValueError("sitemap_url is not a valid URL")
-    host = (parsed.hostname or '').lower()
-    if not host:
-        raise ValueError("sitemap_url has no hostname")
-    if host in _BLOCKED_HOSTS:
-        raise ValueError(f"sitemap_url hostname not permitted: {host!r}")
-    try:
-        addr = ipaddress.ip_address(host)
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
-            raise ValueError(f"sitemap_url resolves to a reserved IP: {host!r}")
-    except ValueError as exc:
-        if any(w in str(exc) for w in ('private', 'loopback', 'link_local', 'reserved', 'permitted')):
-            raise
-        # Not an IP literal — hostname check passed
 
 
 def _audit(action: str, resource: str, site: str, payload: dict = None):
@@ -110,9 +83,14 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     # ── Hot paths ───────────────────────────────────────────────────────────
     if path == "/admin/hot-paths" and method == "GET":
         site = params.get("site") or None
-        return _r(200, get_top_paths(_safe_int(params.get("limit", 70), 70), site=site))
+        return _r(200, get_top_paths(_safe_int(params.get("limit", 70), 70, _MAX_PAGE_LIMIT), site=site))
 
     if path == "/admin/hot-paths" and method == "POST":
+        if not body.get("path") or not body.get("label"):
+            return _r(400, {"error": "path and label are required"})
+        aliases = body.get("aliases", [])
+        if not isinstance(aliases, list):
+            return _r(400, {"error": "aliases must be a list"})
         result = upsert_path(body)
         _audit("POST", path, body.get("site", "default"), body)
         return _r(200, result)
@@ -146,11 +124,14 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
 
     if path.startswith("/admin/hot-paths/") and path.endswith("/pin") and method == "POST":
         pid = _validate_uuid(path.split("/")[-2])
+        site = (params.get("site") or body.get("site") or "").strip()
+        if not site:
+            return _r(400, {"error": "site query param is required for tenant-scoped operations"})
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("UPDATE nav_hot_paths SET pinned=true WHERE id=%s", (pid,))
+                cur.execute("UPDATE nav_hot_paths SET pinned=true WHERE id=%s AND site_id=%s", (pid, site))
             conn.commit()
-        _audit("POST", path, params.get("site", "default"), {"id": pid, "pinned": True})
+        _audit("POST", path, site, {"id": pid, "pinned": True})
         return _r(200, {"pinned": pid})
 
     if path == "/admin/hot-paths/evict" and method == "POST":
@@ -169,7 +150,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
 
     # ── Index ────────────────────────────────────────────────────────────────
     if path == "/admin/index" and method == "GET":
-        limit  = _safe_int(params.get("limit", 50), 50)
+        limit  = _safe_int(params.get("limit", 50), 50, _MAX_PAGE_LIMIT)
         offset = _safe_int(params.get("offset", 0), 0)
         site   = params.get("site") or None
         with get_conn() as conn:
@@ -196,7 +177,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         _audit("POST", path, body.get("site", "default"), body)
         return _r(200, {"indexed": body["path"]})
 
-    if path.startswith("/admin/index/") and method == "DELETE":
+    if path.startswith("/admin/index/") and not path.endswith("/reindex-all") and method == "DELETE":
         iid = _validate_uuid(path.split("/")[-1])
         site = (params.get("site") or "").strip()
         if not site:
@@ -279,13 +260,23 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
             "API_KEYS_COUNT": len(settings.API_KEYS),
         })
 
+    _CONFIG_BOUNDS = {
+        "MAX_HOT_PATHS":      (int,   1,   1000),
+        "HOT_PATH_THRESHOLD": (float, 0.0, 1.0),
+        "L1_THRESHOLD":       (float, 0.0, 1.0),
+        "L2_THRESHOLD":       (float, 0.0, 1.0),
+    }
+
     if path == "/admin/config" and method == "PUT":
-        mapping = {"MAX_HOT_PATHS": int, "HOT_PATH_THRESHOLD": float, "L1_THRESHOLD": float, "L2_THRESHOLD": float}
+        mapping = {k: v[0] for k, v in _CONFIG_BOUNDS.items()}
         updated = {}
         for k, cast in mapping.items():
             val = body.get(k) if body.get(k) is not None else body.get(k.lower())
             if val is not None:
                 cast_val = cast(val)
+                lo, hi = _CONFIG_BOUNDS[k][1], _CONFIG_BOUNDS[k][2]
+                if not (lo <= cast_val <= hi):
+                    return _r(400, {"error": f"{k} must be between {lo} and {hi}"})
                 setattr(settings, k, cast_val)
                 updated[k] = cast_val
         # Per-tenant overrides: keys of the form {"site": "<id>", "L1_THRESHOLD": 0.8}
@@ -297,6 +288,9 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                 val = body.get(k) if body.get(k) is not None else body.get(k.lower())
                 if val is not None:
                     cast_val = cast(val)
+                    lo, hi = _CONFIG_BOUNDS[k][1], _CONFIG_BOUNDS[k][2]
+                    if not (lo <= cast_val <= hi):
+                        return _r(400, {"error": f"{k} must be between {lo} and {hi}"})
                     site_overrides[site_key][k] = cast_val
                     updated[f"{site_key}:{k}"] = cast_val
             settings.SITE_OVERRIDES = site_overrides
@@ -313,7 +307,8 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                             (k, str(v)),
                         )
                 conn.commit()
-        _audit("PUT", path, site_key or "default", body)
+        # Only audit what actually changed — never store raw body which may contain API keys.
+        _audit("PUT", path, site_key or "default", {"updated_keys": list(updated.keys())})
         return _r(200, {"updated": updated})
 
     # ── Bulk index ───────────────────────────────────────────────────────────
@@ -333,7 +328,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         if not sitemap_url:
             return _r(400, {"error": "sitemap_url is required"})
         try:
-            _validate_sitemap_url(sitemap_url)
+            validate_sitemap_url(sitemap_url)
         except ValueError as exc:
             return _r(400, {"error": str(exc)})
         result = crawl_sitemap(sitemap_url, body.get("label_prefix", ""), site=body.get("site", "default"))
@@ -364,7 +359,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     # ── Audit log ─────────────────────────────────────────────────────────────
     # GET /admin/audit-log?site=lumo&limit=50
     if path == "/admin/audit-log" and method == "GET":
-        limit = _safe_int(params.get("limit", 50), 50)
+        limit = _safe_int(params.get("limit", 50), 50, _MAX_PAGE_LIMIT)
         site  = params.get("site") or None
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -390,7 +385,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     # DELETE /admin/aliases/<id>
     if path == "/admin/aliases" and method == "GET":
         site   = params.get("site") or None
-        limit  = _safe_int(params.get("limit", 50), 50)
+        limit  = _safe_int(params.get("limit", 50), 50, _MAX_PAGE_LIMIT)
         offset = _safe_int(params.get("offset", 0), 0)
         with get_conn() as conn:
             with conn.cursor() as cur:

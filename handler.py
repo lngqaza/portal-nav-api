@@ -120,10 +120,12 @@ def lambda_handler(event, context):
             from core.auth import resolve_scope
             from routes.query import handle_suggest
             qs = event.get("queryStringParameters") or {}
-            # Prefer X-Api-Key header (key in ?k= is visible in access logs).
-            # ?k= fallback is deprecated — remove after widget v2 ships (TODO sprint-next).
+            # Prefer X-Api-Key header; ?k= is deprecated (visible in access logs).
             key = headers.get("x-api-key") or qs.get("k", "")
-            scope = resolve_scope(key) or ["default"]
+            scope = resolve_scope(key)
+            # Unauthenticated suggest returns empty — don't leak default tenant index.
+            if scope is None:
+                return _r(200, [])
             return handle_suggest(qs.get("q", ""), scope)
 
         # POST /navigate — widget feedback endpoint.
@@ -165,10 +167,10 @@ def _body(event):
     if event.get("isBase64Encoded"):
         import base64
         body = base64.b64decode(body).decode()
-    try:
-        return json.loads(body)
-    except Exception:
-        return {}
+    parsed = json.loads(body)  # raises ValueError → 400 via the except ValueError handler
+    if not isinstance(parsed, dict):
+        raise ValueError("Request body must be a JSON object")
+    return parsed
 
 
 def _r(status, data):

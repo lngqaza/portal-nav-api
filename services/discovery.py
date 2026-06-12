@@ -9,6 +9,7 @@ where the crawler can't (the Lambda has no outbound internet).
 import hashlib
 import logging
 import re
+import urllib.parse
 
 from core.db import get_conn
 from services.embedding import index_page
@@ -32,7 +33,9 @@ def sanitise(body: dict) -> dict:
     Returns {path, label, description, tags} or raises ValueError.
     """
     path = _clean(body.get("path"), 500)
-    if not path.startswith("/") or ".." in path:
+    # Decode percent-encoding before the traversal check so %2e%2e bypasses are caught.
+    decoded = urllib.parse.unquote(path)
+    if not decoded.startswith("/") or ".." in decoded:
         raise ValueError("path must be an absolute portal path")
     # Strip query/fragment so variants of one page collapse to one row
     path = path.split("?")[0].split("#")[0] or "/"
@@ -63,6 +66,7 @@ def discover_page(body: dict, site: str = "default") -> dict:
     """
     page = sanitise(body)
     h = content_hash(page)
+    row = None  # initialise before try so the final log line never raises NameError
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:

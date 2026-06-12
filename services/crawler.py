@@ -12,11 +12,45 @@ a pgvector embedding immediately — no separate reindex step needed.
 Network access: Lambda must have outbound internet access (NAT gateway or VPC
 endpoint) to reach external sitemaps.  Internal sitemaps (same VPC) always work.
 """
+import ipaddress
 import logging
 import re
+import urllib.parse
 import urllib.request
 import urllib.error
 from typing import Generator
+
+_BLOCKED_HOSTS = frozenset([
+    '169.254.169.254', 'metadata.google.internal',
+    'instance-data', 'localhost', '0.0.0.0', '127.0.0.1',
+])
+
+
+def validate_sitemap_url(url: str) -> None:
+    """Raise ValueError if url is not a safe public HTTPS URL.
+
+    Blocks RFC-1918 addresses, loopback, link-local, and known cloud metadata
+    endpoints to prevent SSRF. Called from both the admin route handler (for the
+    top-level URL) and the crawler itself (for child sitemapindex URLs).
+    """
+    if not url.lower().startswith('https://'):
+        raise ValueError("sitemap_url must use HTTPS")
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:
+        raise ValueError("sitemap_url is not a valid URL")
+    host = (parsed.hostname or '').lower()
+    if not host:
+        raise ValueError("sitemap_url has no hostname")
+    if host in _BLOCKED_HOSTS:
+        raise ValueError(f"sitemap_url hostname not permitted: {host!r}")
+    try:
+        addr = ipaddress.ip_address(host)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise ValueError(f"sitemap_url resolves to a reserved IP: {host!r}")
+    except ValueError as exc:
+        if any(w in str(exc) for w in ('private', 'loopback', 'link_local', 'reserved', 'permitted')):
+            raise
 
 try:
     # defusedxml prevents XML entity expansion attacks (billion laughs, XXE).
@@ -160,7 +194,7 @@ def _iter_pages(sitemap_url: str, _depth: int = 0) -> Generator[dict, None, None
             if loc is not None and loc.text:
                 child_url = loc.text.strip()
                 try:
-                    _validate_sitemap_url(child_url)  # SSRF guard on child URLs
+                    validate_sitemap_url(child_url)  # SSRF guard on child URLs
                     yield from _iter_pages(child_url, _depth=_depth + 1)
                 except (ValueError, Exception) as exc:
                     logger.warning("child sitemap error %s: %s", child_url, exc)

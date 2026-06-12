@@ -4,6 +4,8 @@ import os
 import threading
 from typing import List, Optional
 
+import numpy as np
+
 from core.config import settings
 from models.navigation import EmbeddingResult
 
@@ -58,9 +60,7 @@ def rerank(query: str, candidates: List[EmbeddingResult],
                 out = _session.run(None, inp)
             # ONNX cross-encoders may output [batch] or [batch,labels] or [batch,1,x].
             # Flatten to a scalar safely regardless of shape.
-            raw = out[0]
-            import numpy as np
-            scores.append(float(np.array(raw).flat[0]))
+            scores.append(float(np.array(out[0]).flat[0]))
         best_idx = scores.index(max(scores))
         best = candidates[best_idx]
         best.score = max(scores)

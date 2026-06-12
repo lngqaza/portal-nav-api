@@ -73,10 +73,12 @@ def route_query(query: str, scope: list = None, context_path: str = None,
     # core so every layer matches meaning, not phrasing, then snap typos to
     # the searchable vocabulary:
     # "where do I log a claim?" -> "log a claim"; "paymnet" -> "payment"
-    core = spelling.correct_query(intent.intent_core(query), site)
+    _intent_core = intent.intent_core(query)
+    core = spelling.correct_query(_intent_core, site)
 
     # L0 — hot path registry (~1ms). Try the raw query first (aliases may be
-    # full phrases), then the intent core if stripping changed anything.
+    # full phrases), then the intent/spelling-corrected core if it differs
+    # from the raw query (i.e. stripping or correction actually changed it).
     r0 = hp.lookup(query, scope, threshold=_hp_threshold)
     if not r0 and core != query.lower().strip():
         r0 = hp.lookup(core, scope, threshold=_hp_threshold)

@@ -58,6 +58,8 @@ def handle_batch(body: dict, scope: list = None, request_id: str = "-") -> dict:
         Lambda proxy response with list of NavigationResult fields.
     """
     queries = body.get("queries", [])
+    if not isinstance(queries, list):
+        return _r(400, {"error": "queries must be an array"})
     if not queries:
         return _r(400, {"error": "queries field is required"})
     if len(queries) > BATCH_MAX_QUERIES:
