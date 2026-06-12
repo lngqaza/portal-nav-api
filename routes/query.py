@@ -40,7 +40,7 @@ def handle_query(body: dict, scope: list = None, request_id: str = "-") -> dict:
         return _r(400, {"error": "query field is required"})
     if len(query) > MAX_QUERY_LENGTH:
         return _r(400, {"error": f"query exceeds {MAX_QUERY_LENGTH} character limit"})
-    context_path = str(body.get("context_path", "")).strip() or None
+    context_path = str(body.get("context_path", "")).strip()[:500] or None
     return _r(200, route_query(query, scope, context_path=context_path,
                                request_id=request_id).to_dict())
 

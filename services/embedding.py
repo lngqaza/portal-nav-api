@@ -93,15 +93,19 @@ def index_page(path: str, label: str, description: str, tags: List[str], site: s
         logger.warning("Cannot embed %s — model not loaded", path)
         return
     vec_str = "[" + ",".join(f"{v:.6f}" for v in vec.tolist()) + "]"
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO nav_index (site_id, path, label, description, tags, embedding)
-                VALUES (%s,%s,%s,%s,%s,%s::vector)
-                ON CONFLICT (site_id, path) DO UPDATE
-                  SET label=%s, description=%s, tags=%s, embedding=%s::vector
-                """,
-                (site, path, label, description, tags, vec_str, label, description, tags, vec_str),
-            )
-        conn.commit()
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO nav_index (site_id, path, label, description, tags, embedding)
+                    VALUES (%s,%s,%s,%s,%s,%s::vector)
+                    ON CONFLICT (site_id, path) DO UPDATE
+                      SET label=%s, description=%s, tags=%s, embedding=%s::vector
+                    """,
+                    (site, path, label, description, tags, vec_str, label, description, tags, vec_str),
+                )
+            conn.commit()
+    except Exception as exc:
+        logger.error("index_page failed for %s: %s", path, exc)
+        raise

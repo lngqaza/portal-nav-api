@@ -94,7 +94,12 @@ def clean_db(raw_conn):
     with raw_conn.cursor() as cur:
         cur.execute(
             "TRUNCATE nav_hot_paths, nav_index, nav_query_log, nav_config, "
-            "nav_navigate_log, nav_audit_log, nav_path_aliases RESTART IDENTITY CASCADE"
+            "nav_navigate_log, nav_audit_log, nav_path_aliases, nav_sites RESTART IDENTITY CASCADE"
+        )
+        # Re-seed the default site so FK-referencing tests don't fail.
+        cur.execute(
+            "INSERT INTO nav_sites (site_id, label) VALUES ('default', 'Default site') "
+            "ON CONFLICT (site_id) DO NOTHING"
         )
     raw_conn.commit()
     yield raw_conn

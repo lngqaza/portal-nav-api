@@ -81,12 +81,19 @@ rules:
       owasp: A03:2021
 
   # ── Rule 5: print() / console.log() in application code ──────────────────
+  # NOTE: services/query_router.py intentionally uses print() for CloudWatch
+  # EMF (Embedded Metric Format) metrics — Lambda Logs agent requires
+  # structured JSON on stdout. That print() is excluded via nosemgrep comment
+  # in the source. All other print() usage in application code is forbidden.
   - id: portal-nav-console-log
     patterns:
       - pattern: print(...)
       - pattern-not-inside: |
           if __name__ == "__main__":
               ...
+      # Exclude lines annotated with nosemgrep (used for intentional EMF metrics)
+      - pattern-not: |
+          print(...) # nosemgrep
     paths:
       include:
         - handler.py
@@ -96,6 +103,8 @@ rules:
     message: |
       Use the structured logger (logging.getLogger(__name__)) — not print().
       print() bypasses log level filtering and does not emit structured JSON.
+      Exception: CloudWatch EMF metrics must use print() — annotate with
+      # nosemgrep to suppress this warning on intentional EMF lines.
     languages: [python]
     severity: WARNING
     metadata:

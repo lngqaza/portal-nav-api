@@ -160,7 +160,7 @@ def route_query(query: str, scope: list = None, context_path: str = None,
     # CloudWatch EMF requires structured JSON on stdout — this is intentional,
     # NOT a debug print. The Logs agent parses it into a custom metric.
     ms = _ms(start)
-    print(json.dumps({
+    print(json.dumps({  # nosemgrep
         "_aws": {
             "Timestamp": int(time.time() * 1000),
             "CloudWatchMetrics": [{"Namespace": "portal-nav-api", "Dimensions": [["site"]], "Metrics": [{"Name": "Miss", "Unit": "Count"}]}],

@@ -55,7 +55,11 @@ def init_pool():
         if url.startswith(old):
             url = new + url[len(old):]
     try:
-        _pool = psycopg2.pool.ThreadedConnectionPool(minconn=1, maxconn=5, dsn=url)
+        _pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=settings.DB_POOL_MINCONN,
+            maxconn=settings.DB_POOL_MAXCONN,
+            dsn=url,
+        )
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("CREATE EXTENSION IF NOT EXISTS vector")

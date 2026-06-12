@@ -173,6 +173,8 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         return _r(200, rows)
 
     if path == "/admin/index" and method == "POST":
+        if not body.get("path") or not body.get("label"):
+            return _r(400, {"error": "path and label are required"})
         index_page(body["path"], body["label"], body.get("description", ""), body.get("tags", []))
         _audit("POST", path, body.get("site", "default"), body)
         return _r(200, {"indexed": body["path"]})
@@ -276,7 +278,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     # ── Sitemap crawl ────────────────────────────────────────────────────────
     # POST /admin/index/crawl  { "sitemap_url": "https://...", "label_prefix": "" }
     if path == "/admin/index/crawl" and method == "POST":
-        sitemap_url = body.get("sitemap_url", "").strip()
+        sitemap_url = body.get("sitemap_url", "").strip()[:2048]
         if not sitemap_url:
             return _r(400, {"error": "sitemap_url is required"})
         try:

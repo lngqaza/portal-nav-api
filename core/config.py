@@ -55,6 +55,13 @@ class Settings:
     MAX_HOT_PATHS: int = int(os.environ.get("MAX_HOT_PATHS", "70"))
     SERVICE_VERSION: str = os.environ.get("SERVICE_VERSION", "1.0.0")
     LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO")
+    # ── DB pool sizing ───────────────────────────────────────────────────────
+    # Lambda functions share a pool within a single execution environment.
+    # maxconn=5 is right for Lambda (each instance is single-threaded for
+    # Lambda itself, but ThreadPoolExecutor in handle_batch can use up to 5
+    # workers). Expose as env vars so load tests can tune without code changes.
+    DB_POOL_MINCONN: int = int(os.environ.get("DB_POOL_MINCONN", "1"))
+    DB_POOL_MAXCONN: int = int(os.environ.get("DB_POOL_MAXCONN", "5"))
     # ── Feedback / promotion tuning ──────────────────────────────────────────
     PROMOTE_UNIQUE_QUERIES: int = int(os.environ.get("PROMOTE_UNIQUE_QUERIES", "3"))
     PROMOTE_WINDOW_DAYS: int = int(os.environ.get("PROMOTE_WINDOW_DAYS", "7"))
