@@ -108,25 +108,38 @@ def handle_suggest(q: str, scope: list = None) -> dict:
                 with conn.cursor() as cur:
                     ql = q.lower()
                     pat = f"%{ql}%"
-                    # The GIN trigram indexes on lower(label) and lower(description)
-                    # (created in migrations) allow PostgreSQL to resolve the leading-
-                    # wildcard LIKE pattern without a sequential scan.  The similarity()
-                    # score is used for ranking so the most relevant prefix comes first.
-                    cur.execute(
-                        """
-                        SELECT path, label,
-                               greatest(
-                                   similarity(lower(label), %s),
-                                   similarity(lower(coalesce(description,'')), %s)
-                               ) AS sim
-                        FROM nav_index
-                        WHERE site_id = ANY(%s)
-                          AND (lower(label) LIKE %s OR lower(coalesce(description,'')) LIKE %s)
-                        ORDER BY (site_id = %s) DESC, sim DESC, label
-                        LIMIT 5
-                        """,
-                        (ql, ql, scope, pat, pat, scope[0]),
-                    )
+                    try:
+                        # GIN trigram path — uses idx_nav_index_label_trgm /
+                        # idx_nav_index_desc_trgm created in migrations.
+                        # similarity() is a pg_trgm function; falls back to the
+                        # plain LIKE query below if the extension isn't installed.
+                        cur.execute(
+                            """
+                            SELECT path, label,
+                                   greatest(
+                                       similarity(lower(label), %s),
+                                       similarity(lower(coalesce(description,'')), %s)
+                                   ) AS sim
+                            FROM nav_index
+                            WHERE site_id = ANY(%s)
+                              AND (lower(label) LIKE %s OR lower(coalesce(description,'')) LIKE %s)
+                            ORDER BY (site_id = %s) DESC, sim DESC, label
+                            LIMIT 5
+                            """,
+                            (ql, ql, scope, pat, pat, scope[0]),
+                        )
+                    except Exception:
+                        # pg_trgm not yet installed (pre-migration cold start or
+                        # unsupported RDS version) — fall back to plain LIKE.
+                        cur.execute(
+                            """
+                            SELECT path, label FROM nav_index
+                            WHERE site_id = ANY(%s)
+                              AND (lower(label) LIKE %s OR lower(coalesce(description,'')) LIKE %s)
+                            ORDER BY (site_id = %s) DESC, label LIMIT 5
+                            """,
+                            (scope, pat, pat, scope[0]),
+                        )
                     results = [{"path": r[0], "label": r[1]} for r in cur.fetchall()]
         except Exception as exc:
             logger.warning("suggest DB unavailable, returning []: %s", exc)

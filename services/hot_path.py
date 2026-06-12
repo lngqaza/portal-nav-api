@@ -73,10 +73,12 @@ def lookup(query: str, scope: list = None, threshold: float = None) -> Optional[
 
         if score > best_score:
             best_score, best_row = score, row
-            # Perfect (or near-perfect) text match — no need to scan the rest.
-            # rank_pct contributes at most 0.2, so a text score ≥ 0.975 cannot
-            # be beaten by any later row regardless of its rank position.
-            if best_score >= 0.975:
+            # Exit early when no remaining row can possibly beat best_score.
+            # The maximum score any row at index j can achieve is:
+            #   0.8 * 1.0 + 0.2 * (1 - j/total)   [home-site, perfect text]
+            # Since j >= idx+1, the ceiling for all remaining rows is:
+            max_remaining = 0.8 + 0.2 * (1.0 - (idx + 1) / max(total, 1))
+            if best_score >= max_remaining:
                 break
 
     if best_score >= effective_threshold and best_row:
