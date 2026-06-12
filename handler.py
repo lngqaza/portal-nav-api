@@ -57,10 +57,15 @@ _CORS_ORIGINS = (
 
 
 def _cors_origin(request_origin: str) -> str:
-    """Return the ACAO value for this request's Origin header."""
+    """Return the ACAO value for this request's Origin header.
+
+    Returns the origin unchanged when it is in the allowlist, or an empty
+    string when it is not — causing the browser to block the cross-origin
+    response rather than accepting it silently.
+    """
     if "*" in _CORS_ORIGINS:
         return "*"
-    return request_origin if request_origin in _CORS_ORIGINS else list(_CORS_ORIGINS)[0]
+    return request_origin if request_origin in _CORS_ORIGINS else ""
 
 
 def lambda_handler(event, context):

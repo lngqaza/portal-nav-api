@@ -9,6 +9,7 @@ calls; vocabulary is cached in-process and refreshed lazily.
 """
 import logging
 import re
+import threading
 import time
 from typing import List, Optional
 
@@ -28,6 +29,7 @@ VOCAB_TTL_SECONDS = 600
 
 _vocab: dict = {}          # site -> frozenset
 _vocab_loaded_at: dict = {}  # site -> monotonic ts
+_vocab_lock = threading.Lock()  # guards cache-miss rebuild under ThreadPoolExecutor
 
 
 def _build_vocab(site: str) -> frozenset:
@@ -55,11 +57,20 @@ def _build_vocab(site: str) -> frozenset:
 
 
 def get_vocab(site: str = "default") -> frozenset:
-    """Cached per-site vocabulary, rebuilt at most every VOCAB_TTL_SECONDS."""
+    """Cached per-site vocabulary, rebuilt at most every VOCAB_TTL_SECONDS.
+
+    The lock prevents concurrent batch workers from each triggering a rebuild
+    when they all observe a stale cache at the same instant (TOCTOU).
+    """
     now = time.monotonic()
-    if site not in _vocab or now - _vocab_loaded_at.get(site, 0) > VOCAB_TTL_SECONDS:
-        _vocab[site] = _build_vocab(site)
-        _vocab_loaded_at[site] = now
+    if site in _vocab and now - _vocab_loaded_at.get(site, 0) <= VOCAB_TTL_SECONDS:
+        return _vocab[site]
+    with _vocab_lock:
+        # Re-check under the lock — another thread may have rebuilt while we waited.
+        now = time.monotonic()
+        if site not in _vocab or now - _vocab_loaded_at.get(site, 0) > VOCAB_TTL_SECONDS:
+            _vocab[site] = _build_vocab(site)
+            _vocab_loaded_at[site] = now
     return _vocab[site]
 
 

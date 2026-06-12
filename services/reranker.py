@@ -63,4 +63,7 @@ def rerank(query: str, candidates: List[EmbeddingResult],
         return best if best.score >= thresh else None
     except Exception as e:
         logger.error("rerank error: %s", e)
-        return candidates[0] if candidates else None
+        # Apply threshold even on exception — don't promote a low-confidence L1
+        # candidate past the L2 gate just because the reranker failed.
+        top = candidates[0] if candidates else None
+        return top if (top and top.score >= thresh) else None

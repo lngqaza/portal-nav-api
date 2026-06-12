@@ -147,14 +147,17 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         return _r(200, {"pinned": pid})
 
     if path == "/admin/hot-paths/evict" and method == "POST":
-        site = body.get("site") or None
+        site = (body.get("site") or "").strip() or None
+        # Require an explicit site to prevent accidental cross-tenant eviction.
+        if not site:
+            return _r(400, {"error": "site is required for evict — cross-tenant eviction is not permitted"})
         try:
             evicted = evict_cold_paths(_safe_int(body.get("min_hits_per_week", 50), 50), site=site)
         except Exception as exc:
             import logging as _logging
             _logging.getLogger(__name__).error("evict_cold_paths failed: %s", exc)
             return _r(500, {"error": "Internal server error"})
-        _audit("POST", path, site or "default", body)
+        _audit("POST", path, site, body)
         return _r(200, {"evicted": evicted})
 
     # ── Index ────────────────────────────────────────────────────────────────
@@ -182,7 +185,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     if path == "/admin/index" and method == "POST":
         if not body.get("path") or not body.get("label"):
             return _r(400, {"error": "path and label are required"})
-        index_page(body["path"], body["label"], body.get("description", ""), body.get("tags", []))
+        index_page(body["path"], body["label"], body.get("description", ""), body.get("tags", []), site=body.get("site", "default"))
         _audit("POST", path, body.get("site", "default"), body)
         return _r(200, {"indexed": body["path"]})
 
@@ -196,14 +199,29 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         return _r(200, {"deleted": iid})
 
     if path == "/admin/index/reindex-all" and method == "POST":
+        site   = body.get("site", "default")
+        limit  = min(_safe_int(body.get("limit", 200), 200), 500)
+        offset = _safe_int(body.get("offset", 0), 0)
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT path,label,description,tags FROM nav_index")
+                if site and site != "all":
+                    cur.execute(
+                        "SELECT path,label,description,tags,site_id FROM nav_index "
+                        "WHERE site_id=%s LIMIT %s OFFSET %s",
+                        (site, limit, offset),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT path,label,description,tags,site_id FROM nav_index "
+                        "LIMIT %s OFFSET %s",
+                        (limit, offset),
+                    )
                 rows = cur.fetchall()
         for row in rows:
-            index_page(row[0], row[1], row[2] or "", row[3] or [])
-        _audit("POST", path, body.get("site", "default"), {"reindexed": len(rows)})
-        return _r(200, {"reindexed": len(rows)})
+            index_page(row[0], row[1], row[2] or "", row[3] or [], site=row[4])
+        has_more = len(rows) == limit
+        _audit("POST", path, site, {"reindexed": len(rows), "offset": offset})
+        return _r(200, {"reindexed": len(rows), "offset": offset, "has_more": has_more})
 
     # ── Stats ────────────────────────────────────────────────────────────────
     if path == "/admin/stats" and method == "GET":
@@ -242,7 +260,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         mapping = {"MAX_HOT_PATHS": int, "HOT_PATH_THRESHOLD": float, "L1_THRESHOLD": float, "L2_THRESHOLD": float}
         updated = {}
         for k, cast in mapping.items():
-            val = body.get(k) or body.get(k.lower())
+            val = body.get(k) if body.get(k) is not None else body.get(k.lower())
             if val is not None:
                 cast_val = cast(val)
                 setattr(settings, k, cast_val)
@@ -253,7 +271,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
             site_overrides = getattr(settings, "SITE_OVERRIDES", {})
             site_overrides.setdefault(site_key, {})
             for k, cast in mapping.items():
-                val = body.get(k) or body.get(k.lower())
+                val = body.get(k) if body.get(k) is not None else body.get(k.lower())
                 if val is not None:
                     cast_val = cast(val)
                     site_overrides[site_key][k] = cast_val
@@ -281,7 +299,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         pages = body.get("pages", [])
         if not pages or not isinstance(pages, list):
             return _r(400, {"error": "pages array is required"})
-        result = bulk_index(pages)
+        result = bulk_index(pages, site=body.get("site", "default"))
         _audit("POST", path, body.get("site", "default"), {"page_count": len(pages)})
         return _r(200, result)
 
@@ -295,7 +313,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
             _validate_sitemap_url(sitemap_url)
         except ValueError as exc:
             return _r(400, {"error": str(exc)})
-        result = crawl_sitemap(sitemap_url, body.get("label_prefix", ""))
+        result = crawl_sitemap(sitemap_url, body.get("label_prefix", ""), site=body.get("site", "default"))
         _audit("POST", path, body.get("site", "default"), {"sitemap_url": sitemap_url})
         return _r(200, result)
 

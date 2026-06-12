@@ -16,8 +16,15 @@ import logging
 import re
 import urllib.request
 import urllib.error
-import xml.etree.ElementTree as ET
 from typing import Generator
+
+try:
+    # defusedxml prevents XML entity expansion attacks (billion laughs, XXE).
+    # Required — listed in requirements.txt. Fall back to stdlib only if somehow
+    # absent so tests don't break; the Lambda image always has it.
+    import defusedxml.ElementTree as ET
+except ImportError:  # pragma: no cover
+    import xml.etree.ElementTree as ET  # type: ignore[no-redef]
 
 from services.embedding import index_page
 
@@ -28,7 +35,7 @@ MAX_PAGES_PER_CRAWL = 200
 REQUEST_TIMEOUT_S   = 8
 
 
-def crawl_sitemap(sitemap_url: str, base_label_prefix: str = "") -> dict:
+def crawl_sitemap(sitemap_url: str, base_label_prefix: str = "", site: str = "default") -> dict:
     """
     Fetch `sitemap_url`, parse all <loc> entries, and index each page.
 
@@ -38,8 +45,8 @@ def crawl_sitemap(sitemap_url: str, base_label_prefix: str = "") -> dict:
 
     Args:
         sitemap_url:       Fully-qualified URL of the sitemap.xml to crawl.
-        base_label_prefix: Optional prefix prepended to derived page labels
-                           (e.g. "Portal - ").
+        base_label_prefix: Optional prefix prepended to derived page labels.
+        site:              Tenant site_id to index pages under. Defaults to "default".
 
     Returns:
         dict with keys: indexed (int), skipped (int), errors (list[str]).
@@ -59,6 +66,7 @@ def crawl_sitemap(sitemap_url: str, base_label_prefix: str = "") -> dict:
                 label=label,
                 description=page.get("description", ""),
                 tags=page.get("tags", []),
+                site=site,
             )
             indexed += 1
         except Exception as exc:
@@ -75,7 +83,7 @@ def crawl_sitemap(sitemap_url: str, base_label_prefix: str = "") -> dict:
     return {"indexed": indexed, "skipped": skipped, "errors": errors}
 
 
-def bulk_index(pages: list) -> dict:
+def bulk_index(pages: list, site: str = "default") -> dict:
     """
     Index a list of page dicts in one call.
 
@@ -84,6 +92,7 @@ def bulk_index(pages: list) -> dict:
     Args:
         pages: List of dicts with keys path (str), label (str),
                description (str, optional), tags (list, optional).
+        site:  Tenant site_id. Defaults to "default".
 
     Returns:
         dict with keys: indexed (int), skipped (int), errors (list[str]).
@@ -100,6 +109,7 @@ def bulk_index(pages: list) -> dict:
                 label=page["label"],
                 description=page.get("description", ""),
                 tags=page.get("tags", []),
+                site=site,
             )
             indexed += 1
         except Exception as exc:
@@ -123,16 +133,25 @@ def _fetch_xml(url: str) -> ET.Element:
     return ET.fromstring(content)
 
 
-def _iter_pages(sitemap_url: str) -> Generator[dict, None, None]:
+_MAX_SITEMAP_DEPTH = 1  # follow sitemapindex → child, but not child → grandchild
+
+
+def _iter_pages(sitemap_url: str, _depth: int = 0) -> Generator[dict, None, None]:
     """
     Yield page dicts from a sitemap URL.
-    Follows one level of <sitemapindex> child links.
+    Follows <sitemapindex> child links up to _MAX_SITEMAP_DEPTH levels deep.
     """
     root = _fetch_xml(sitemap_url)
     # Strip XML namespace for simpler tag matching
     tag = root.tag.split("}")[1] if "}" in root.tag else root.tag
 
     if tag == "sitemapindex":
+        if _depth >= _MAX_SITEMAP_DEPTH:
+            logger.warning(
+                "Sitemap recursion limit reached at %s (depth %d) — skipping children",
+                sitemap_url, _depth,
+            )
+            return
         # Index file — follow each child sitemap
         ns = {"sm": root.tag.split("}")[0].lstrip("{")} if "}" in root.tag else {}
         loc_tag = "{%s}loc" % ns.get("sm", "") if ns else "loc"
@@ -140,7 +159,7 @@ def _iter_pages(sitemap_url: str) -> Generator[dict, None, None]:
             loc = sitemap_el.find(loc_tag)
             if loc is not None and loc.text:
                 try:
-                    yield from _iter_pages(loc.text.strip())
+                    yield from _iter_pages(loc.text.strip(), _depth=_depth + 1)
                 except Exception as exc:
                     logger.warning("child sitemap error %s: %s", loc.text, exc)
     else:
