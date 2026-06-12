@@ -111,7 +111,6 @@ class TestContextBoost:
 
         with patch("services.query_router.hp.lookup", return_value=None), \
              patch("services.query_router.emb.search", return_value=[hotel_cand, flight_cand]), \
-             patch("services.query_router.hp.record_miss"), \
              patch("services.query_router._log"), \
              patch("services.query_router.spelling.correct_query", side_effect=lambda q, s: q), \
              patch("services.query_router.intent.intent_core", side_effect=lambda q: q):
@@ -137,7 +136,6 @@ class TestContextBoost:
         cand = Candidate("/hotels.html", "Hotels", "", 0.70)
         with patch("services.query_router.hp.lookup", return_value=None), \
              patch("services.query_router.emb.search", return_value=[cand]), \
-             patch("services.query_router.hp.record_miss"), \
              patch("services.query_router._log"), \
              patch("services.query_router.spelling.correct_query", side_effect=lambda q, s: q), \
              patch("services.query_router.intent.intent_core", side_effect=lambda q: q):
