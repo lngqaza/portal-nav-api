@@ -106,14 +106,26 @@ def handle_suggest(q: str, scope: list = None) -> dict:
         try:
             with get_conn() as conn:
                 with conn.cursor() as cur:
+                    ql = q.lower()
+                    pat = f"%{ql}%"
+                    # The GIN trigram indexes on lower(label) and lower(description)
+                    # (created in migrations) allow PostgreSQL to resolve the leading-
+                    # wildcard LIKE pattern without a sequential scan.  The similarity()
+                    # score is used for ranking so the most relevant prefix comes first.
                     cur.execute(
                         """
-                        SELECT path, label FROM nav_index
+                        SELECT path, label,
+                               greatest(
+                                   similarity(lower(label), %s),
+                                   similarity(lower(coalesce(description,'')), %s)
+                               ) AS sim
+                        FROM nav_index
                         WHERE site_id = ANY(%s)
-                          AND (lower(label) LIKE %s OR lower(description) LIKE %s)
-                        ORDER BY (site_id = %s) DESC, label LIMIT 5
+                          AND (lower(label) LIKE %s OR lower(coalesce(description,'')) LIKE %s)
+                        ORDER BY (site_id = %s) DESC, sim DESC, label
+                        LIMIT 5
                         """,
-                        (scope, f"%{q.lower()}%", f"%{q.lower()}%", scope[0]),
+                        (ql, ql, scope, pat, pat, scope[0]),
                     )
                     results = [{"path": r[0], "label": r[1]} for r in cur.fetchall()]
         except Exception as exc:

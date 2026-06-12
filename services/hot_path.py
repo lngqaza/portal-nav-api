@@ -73,6 +73,11 @@ def lookup(query: str, scope: list = None, threshold: float = None) -> Optional[
 
         if score > best_score:
             best_score, best_row = score, row
+            # Perfect (or near-perfect) text match — no need to scan the rest.
+            # rank_pct contributes at most 0.2, so a text score ≥ 0.975 cannot
+            # be beaten by any later row regardless of its rank position.
+            if best_score >= 0.975:
+                break
 
     if best_score >= effective_threshold and best_row:
         _increment_hit(str(best_row[0]))

@@ -272,6 +272,17 @@ def _run_migrations():
         ON nav_index USING hnsw (embedding vector_cosine_ops)
         WITH (m=16, ef_construction=64);
 
+    -- pg_trgm: trigram similarity for fast LIKE '%q%' suggest queries.
+    -- Without this, every keystroke in the widget causes a sequential scan of
+    -- nav_index. The GIN index lets PostgreSQL resolve leading-wildcard patterns
+    -- in O(log N) instead of O(N). The extension is bundled with standard
+    -- PostgreSQL distributions and is safe to create idempotently.
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    CREATE INDEX IF NOT EXISTS idx_nav_index_label_trgm
+        ON nav_index USING GIN (lower(label) gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_nav_index_desc_trgm
+        ON nav_index USING GIN (lower(coalesce(description,'')) gin_trgm_ops);
+
     -- Audit log: immutable record of every admin write operation.
     -- FAIS PoI 12 requires a complete trail of changes to customer-facing navigation.
     CREATE TABLE IF NOT EXISTS nav_audit_log (
