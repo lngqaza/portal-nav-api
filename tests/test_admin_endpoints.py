@@ -144,7 +144,7 @@ def test_alias03_delete_alias():
     mock_conn, _ = _mock_conn()
 
     with patch("routes.admin.get_conn", return_value=mock_conn):
-        result = handle_admin(f"/admin/aliases/{uid}", "DELETE", {}, {})
+        result = handle_admin(f"/admin/aliases/{uid}", "DELETE", {}, {"site": "default"})
 
     assert result["statusCode"] == 200
     assert json.loads(result["body"])["deleted"] == uid

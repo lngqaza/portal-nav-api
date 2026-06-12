@@ -4,7 +4,16 @@ from services.discovery import discover_page
 
 
 def _r(status, data):
-    return {"statusCode": status, "headers": {"Content-Type": "application/json"}, "body": json.dumps(data)}
+    return {
+        "statusCode": status,
+        "headers": {
+            "Content-Type": "application/json",
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Cache-Control": "no-store",
+        },
+        "body": json.dumps(data),
+    }
 
 
 def handle_discover(body: dict, scope: list = None) -> dict:

@@ -158,10 +158,12 @@ def _iter_pages(sitemap_url: str, _depth: int = 0) -> Generator[dict, None, None
         for sitemap_el in root:
             loc = sitemap_el.find(loc_tag)
             if loc is not None and loc.text:
+                child_url = loc.text.strip()
                 try:
-                    yield from _iter_pages(loc.text.strip(), _depth=_depth + 1)
-                except Exception as exc:
-                    logger.warning("child sitemap error %s: %s", loc.text, exc)
+                    _validate_sitemap_url(child_url)  # SSRF guard on child URLs
+                    yield from _iter_pages(child_url, _depth=_depth + 1)
+                except (ValueError, Exception) as exc:
+                    logger.warning("child sitemap error %s: %s", child_url, exc)
     else:
         # Standard urlset
         yield from _parse_urlset(root)

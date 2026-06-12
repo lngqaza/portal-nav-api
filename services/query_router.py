@@ -153,8 +153,12 @@ def route_query(query: str, scope: list = None, context_path: str = None,
     alias_result = _alias_lookup(core, scope)
     if alias_result:
         ms = _ms(start)
-        _log(query, alias_result["new_path"], "L0", 0.95, ms, site, context_path, request_id)
-        return NavigationResult(alias_result["new_path"], alias_result["new_path"], 0.95, "L0", ms)
+        new_path = alias_result["new_path"]
+        # Fetch the human-readable label from nav_index so the result shows a
+        # proper page title rather than the raw path string.
+        alias_label = _label_for_path(new_path, scope)
+        _log(query, new_path, "L0", 0.95, ms, site, context_path, request_id)
+        return NavigationResult(new_path, alias_label or new_path, 0.95, "L0", ms)
 
     # MISS — emit CloudWatch EMF metric for real-time alerting on MISS rate spikes.
     # CloudWatch EMF requires structured JSON on stdout — this is intentional,
@@ -227,6 +231,22 @@ def _keyword_fallback(core: str, scope: list) -> list:
 
 def _ms(start: float) -> int:
     return int((time.monotonic() - start) * 1000)
+
+
+def _label_for_path(path: str, scope: list) -> Optional[str]:
+    """Return the nav_index label for a path, or None if not found."""
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT label FROM nav_index WHERE path=%s AND site_id=ANY(%s) LIMIT 1",
+                    (path, scope),
+                )
+                row = cur.fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        logger.warning("label lookup failed for %s: %s", path, e)
+        return None
 
 
 def _alias_lookup(core: str, scope: list) -> Optional[dict]:

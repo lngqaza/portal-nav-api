@@ -79,9 +79,10 @@ class get_conn:
     def __enter__(self):
         if _pool is None:
             raise RuntimeError("DB pool not initialised")
-        # Timeout=5 fast-fails under load instead of blocking the Lambda
-        # thread for the default 60 s while all connections are in use.
-        self._conn = _pool.getconn(timeout=5)
+        # psycopg2 ThreadedConnectionPool.getconn() has no timeout parameter;
+        # fast-fail under pool exhaustion is handled by the PoolError that
+        # psycopg2 raises immediately when maxconn is reached.
+        self._conn = _pool.getconn()
         return self._conn
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -311,7 +312,7 @@ def _run_migrations():
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SET lock_timeout = '3s'")
+            cur.execute("SET LOCAL lock_timeout = '3s'")
             cur.execute(ddl)
             # Per-tenant retention: each site may configure its own retention_days
             # in nav_config as "<site_id>:retention_days". Apply those deletes now.

@@ -56,7 +56,11 @@ def rerank(query: str, candidates: List[EmbeddingResult],
             inp = {k: v for k, v in raw.items() if k in valid_inputs}
             with _lock:
                 out = _session.run(None, inp)
-            scores.append(float(out[0][0][0]))
+            # ONNX cross-encoders may output [batch] or [batch,labels] or [batch,1,x].
+            # Flatten to a scalar safely regardless of shape.
+            raw = out[0]
+            import numpy as np
+            scores.append(float(np.array(raw).flat[0]))
         best_idx = scores.index(max(scores))
         best = candidates[best_idx]
         best.score = max(scores)

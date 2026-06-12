@@ -119,22 +119,29 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
 
     if path.startswith("/admin/hot-paths/") and not path.endswith("/pin"):
         pid = _validate_uuid(path.split("/")[-1])
+        site = (params.get("site") or body.get("site") or "").strip()
+        if not site:
+            return _r(400, {"error": "site query param is required for tenant-scoped operations"})
         if method == "PUT":
+            aliases = body.get("aliases", [])
+            if not isinstance(aliases, list):
+                return _r(400, {"error": "aliases must be a list"})
             with get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "UPDATE nav_hot_paths SET label=%s,aliases=%s,pinned=%s,updated_at=now() WHERE id=%s",
-                        (body.get("label"), body.get("aliases", []), body.get("pinned", False), pid),
+                        "UPDATE nav_hot_paths SET label=%s,aliases=%s,pinned=%s,updated_at=now() "
+                        "WHERE id=%s AND site_id=%s",
+                        (body.get("label"), aliases, body.get("pinned", False), pid, site),
                     )
                 conn.commit()
-            _audit("PUT", path, params.get("site", "default"), body)
+            _audit("PUT", path, site, body)
             return _r(200, {"updated": pid})
         if method == "DELETE":
             with get_conn() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("DELETE FROM nav_hot_paths WHERE id=%s", (pid,))
+                    cur.execute("DELETE FROM nav_hot_paths WHERE id=%s AND site_id=%s", (pid, site))
                 conn.commit()
-            _audit("DELETE", path, params.get("site", "default"), {"id": pid})
+            _audit("DELETE", path, site, {"id": pid})
             return _r(200, {"deleted": pid})
 
     if path.startswith("/admin/hot-paths/") and path.endswith("/pin") and method == "POST":
@@ -191,11 +198,14 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
 
     if path.startswith("/admin/index/") and method == "DELETE":
         iid = _validate_uuid(path.split("/")[-1])
+        site = (params.get("site") or "").strip()
+        if not site:
+            return _r(400, {"error": "site query param is required for tenant-scoped operations"})
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM nav_index WHERE id=%s", (iid,))
+                cur.execute("DELETE FROM nav_index WHERE id=%s AND site_id=%s", (iid, site))
             conn.commit()
-        _audit("DELETE", path, params.get("site", "default"), {"id": iid})
+        _audit("DELETE", path, site, {"id": iid})
         return _r(200, {"deleted": iid})
 
     if path == "/admin/index/reindex-all" and method == "POST":
@@ -226,11 +236,18 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     # ── Stats ────────────────────────────────────────────────────────────────
     if path == "/admin/stats" and method == "GET":
         since = datetime.now(timezone.utc) - timedelta(hours=24)
+        site_filter = params.get("site") or None
+        conditions = ["created_at>=%s"]
+        base_params: list = [since]
+        if site_filter:
+            conditions.append("site_id=%s")
+            base_params.append(site_filter)
+        where = " AND ".join(conditions)
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT layer_used,COUNT(*),AVG(response_ms) FROM nav_query_log WHERE created_at>=%s GROUP BY layer_used",
-                    (since,),
+                    f"SELECT layer_used,COUNT(*),AVG(response_ms) FROM nav_query_log WHERE {where} GROUP BY layer_used",
+                    base_params,
                 )
                 layer_rows = cur.fetchall()
                 total = sum(r[1] for r in layer_rows)
@@ -238,12 +255,18 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                     r[0]: {"count": r[1], "hit_rate": round(r[1]/max(total,1)*100,1), "avg_ms": round(float(r[2] or 0),1)}
                     for r in layer_rows
                 }
+                miss_conditions = ["layer_used='MISS'", "created_at>=%s"]
+                miss_params: list = [since]
+                if site_filter:
+                    miss_conditions.append("site_id=%s")
+                    miss_params.append(site_filter)
+                miss_where = " AND ".join(miss_conditions)
                 cur.execute(
-                    "SELECT raw_query,COUNT(*) FROM nav_query_log WHERE layer_used='MISS' AND created_at>=%s GROUP BY raw_query ORDER BY 2 DESC LIMIT 10",
-                    (since,),
+                    f"SELECT raw_query,COUNT(*) FROM nav_query_log WHERE {miss_where} GROUP BY raw_query ORDER BY 2 DESC LIMIT 10",
+                    miss_params,
                 )
                 top_misses = [r[0] for r in cur.fetchall()]
-        return _r(200, {"total_queries_24h": total, "layers": layers, "top_misses": top_misses})
+        return _r(200, {"total_queries_24h": total, "site": site_filter or "all", "layers": layers, "top_misses": top_misses})
 
     # ── Config ───────────────────────────────────────────────────────────────
     if path == "/admin/config" and method == "GET":
@@ -410,11 +433,14 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
 
     if path.startswith("/admin/aliases/") and method == "DELETE":
         aid = _validate_uuid(path.split("/")[-1])
+        site = (params.get("site") or "").strip()
+        if not site:
+            return _r(400, {"error": "site query param is required for tenant-scoped operations"})
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM nav_path_aliases WHERE id=%s", (aid,))
+                cur.execute("DELETE FROM nav_path_aliases WHERE id=%s AND site_id=%s", (aid, site))
             conn.commit()
-        _audit("DELETE", path, params.get("site", "default"), {"id": aid})
+        _audit("DELETE", path, site, {"id": aid})
         settings.ALIAS_CACHE = load_alias_cache()
         return _r(200, {"deleted": aid})
 

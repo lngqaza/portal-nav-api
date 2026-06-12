@@ -382,6 +382,11 @@
     } catch (e) { /* non-critical */ }
 
     close();
+    // Guard against admin-inserted javascript: URIs — only allow safe schemes.
+    if (!/^(https?:\/\/|\/)/i.test(fullPath)) {
+      logger.warning && logger.warning('nav-widget: blocked unsafe path: ' + fullPath);
+      return;
+    }
     window.location.href = fullPath;
   }
 
@@ -623,7 +628,8 @@
 
     var xhr = new XMLHttpRequest();
     suggestXhr = xhr;
-    xhr.open('GET', cfg.apiUrl + '/query/suggest?q=' + encodeURIComponent(q) + '&k=' + encodeURIComponent(cfg.apiKey), true);
+    xhr.open('GET', cfg.apiUrl + '/query/suggest?q=' + encodeURIComponent(q), true);
+    xhr.setRequestHeader('x-api-key', cfg.apiKey);
     xhr.timeout = 4000;
 
     xhr.onload = function () {

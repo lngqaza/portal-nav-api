@@ -97,7 +97,7 @@ def lambda_handler(event, context):
         }
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
 
-    logger.info(json.dumps({"path": path, "method": method, "request_id": request_id}))
+    logger.info(json.dumps({"path": path[:200], "method": method, "request_id": request_id}))
 
     try:
         if path == "/health" and method == "GET":
