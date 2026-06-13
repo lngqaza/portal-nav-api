@@ -218,7 +218,7 @@ def _iter_pages(sitemap_url: str, _depth: int = 0) -> Generator[dict, None, None
         yield from _parse_urlset(root)
 
 
-def _parse_urlset(root: ET.Element) -> Generator[dict, None, None]:
+def _parse_urlset(root: _StdET.Element) -> Generator[dict, None, None]:
     """Parse a <urlset> element and yield page dicts."""
     ns_prefix = ""
     if "}" in root.tag:
