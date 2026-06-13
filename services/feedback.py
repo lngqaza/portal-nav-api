@@ -154,8 +154,11 @@ def _maybe_promote(path: str, label: str, confidence: float, site: str = "defaul
                     INSERT INTO nav_hot_paths (site_id, path, label, aliases, pinned)
                     VALUES (%s, %s, %s, '{}', false)
                     ON CONFLICT (site_id, path) DO UPDATE
-                        SET label = EXCLUDED.label, updated_at = now()
+                        SET label      = EXCLUDED.label,
+                            updated_at = now()
                     """,
+                    # aliases intentionally excluded from DO UPDATE — _learn_alias
+                    # accumulates learned phrasings and a blanket overwrite would wipe them.
                     (site, path, label),
                 )
             conn.commit()

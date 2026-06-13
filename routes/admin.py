@@ -26,13 +26,14 @@ _MAX_PAGE_LIMIT = 500
 
 
 def _safe_int(value, default: int, max_val: int = None) -> int:
-    """Parse value as int, clamped to [0, max_val] when max_val is provided."""
+    """Parse value as int, clamped to [0, max_val]. Floor of 0 always applied."""
     try:
         v = int(value)
     except (TypeError, ValueError):
         return default
+    v = max(v, 0)
     if max_val is not None:
-        return min(max(v, 0), max_val)
+        return min(v, max_val)
     return v
 
 
@@ -121,6 +122,7 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                     )
                 conn.commit()
             _audit("PUT", path, site, body)
+            settings.ALIAS_CACHE = load_alias_cache()
             return _r(200, {"updated": pid})
         if method == "DELETE":
             with get_conn() as conn:
@@ -274,7 +276,10 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         for k, cast in mapping.items():
             val = body.get(k) if body.get(k) is not None else body.get(k.lower())
             if val is not None:
-                cast_val = cast(val)
+                try:
+                    cast_val = cast(val)
+                except (TypeError, ValueError):
+                    return _r(400, {"error": f"{k} must be a valid {cast.__name__}"})
                 lo, hi = _CONFIG_BOUNDS[k][1], _CONFIG_BOUNDS[k][2]
                 if not (lo <= cast_val <= hi):
                     return _r(400, {"error": f"{k} must be between {lo} and {hi}"})
@@ -325,7 +330,10 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
     # ── Sitemap crawl ────────────────────────────────────────────────────────
     # POST /admin/index/crawl  { "sitemap_url": "https://...", "label_prefix": "" }
     if path == "/admin/index/crawl" and method == "POST":
-        sitemap_url = body.get("sitemap_url", "").strip()[:2048]
+        _raw_url = body.get("sitemap_url", "").strip()
+        if len(_raw_url) > 2048:
+            return _r(400, {"error": "sitemap_url exceeds 2048 character limit"})
+        sitemap_url = _raw_url
         if not sitemap_url:
             return _r(400, {"error": "sitemap_url is required"})
         try:
