@@ -69,7 +69,12 @@ def lookup(query: str, scope: list = None, threshold: float = None) -> Optional[
         # differed, silently disabling phrase learning.
         score = 0.8 * max(lev_label, lev_alias) + 0.2 * rank_pct
         if row[7] != scope[0]:
-            score *= settings.CROSS_SITE_PENALTY  # home-site results win ties
+            # Cross-site results are intentionally included but ranked lower so
+            # shared content (e.g. a group-wide "Log a Claim" path) stays
+            # discoverable from any tenant without overriding home-site results.
+            # To exclude cross-site results entirely, add WHERE site_id = %s
+            # to the hot_paths SELECT above and restrict scope to scope[0].
+            score *= settings.CROSS_SITE_PENALTY
 
         if score > best_score:
             best_score, best_row = score, row

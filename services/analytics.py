@@ -48,14 +48,14 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
             with conn.cursor() as cur:
                 # Daily query volume + miss rate + avg response time
                 cur.execute(
-                    f"""
+                    """
                     SELECT
                         date_trunc('day', created_at)::date AS day,
                         COUNT(*) AS total,
                         COUNT(*) FILTER (WHERE layer_used = 'MISS') AS misses,
                         ROUND(AVG(response_ms)::numeric, 1) AS avg_ms
                     FROM nav_query_log
-                    WHERE {q_where}
+                    WHERE """ + q_where + """
                     GROUP BY 1
                     ORDER BY 1
                     """,
@@ -73,10 +73,10 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
 
                 # Layer breakdown over the whole window
                 cur.execute(
-                    f"""
+                    """
                     SELECT layer_used, COUNT(*) AS cnt
                     FROM nav_query_log
-                    WHERE {q_where}
+                    WHERE """ + q_where + """
                     GROUP BY layer_used
                     ORDER BY cnt DESC
                     """,
@@ -94,13 +94,13 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
 
                 # Click-through rate: navigations / non-MISS queries
                 cur.execute(
-                    f"SELECT COUNT(*) FROM nav_query_log WHERE {q_where} AND layer_used != 'MISS'",
+                    "SELECT COUNT(*) FROM nav_query_log WHERE " + q_where + " AND layer_used != 'MISS'",
                     q_params,
                 )
                 matched = cur.fetchone()[0]
 
                 cur.execute(
-                    f"SELECT COUNT(*) FROM nav_navigate_log WHERE {n_where}",
+                    "SELECT COUNT(*) FROM nav_navigate_log WHERE " + n_where,
                     n_params,
                 )
                 navigations = cur.fetchone()[0]
@@ -108,12 +108,12 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
 
                 # Top 20 queries (excluding MISS, most frequent)
                 cur.execute(
-                    f"""
+                    """
                     SELECT raw_query, COUNT(*) AS cnt,
                            MAX(layer_used) AS layer,
                            ROUND(AVG(confidence)::numeric, 3) AS avg_conf
                     FROM nav_query_log
-                    WHERE {q_where} AND layer_used != 'MISS'
+                    WHERE """ + q_where + """ AND layer_used != 'MISS'
                     GROUP BY raw_query
                     ORDER BY cnt DESC
                     LIMIT 20
@@ -127,12 +127,12 @@ def get_analytics(days: int = 7, site: str = None) -> dict:
 
                 # Top pages by navigation count with avg confidence
                 cur.execute(
-                    f"""
+                    """
                     SELECT navigated_path, label, COUNT(*) AS nav_count,
                            ROUND(AVG(confidence)::numeric, 3) AS avg_conf,
                            COUNT(DISTINCT raw_query) AS unique_queries
                     FROM nav_navigate_log
-                    WHERE {n_where}
+                    WHERE """ + n_where + """
                     GROUP BY navigated_path, label
                     ORDER BY nav_count DESC
                     LIMIT 20

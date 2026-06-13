@@ -209,12 +209,9 @@ def _keyword_fallback(core: str, scope: list) -> list:
                     params += [f"%{t}%"] * 3
                 params.insert(0, scope)
                 cur.execute(
-                    f"""
-                    SELECT path, label, lower(label),
-                           lower(coalesce(description,'') || ' ' || coalesce(array_to_string(tags,' '),'')),
-                           site_id
-                    FROM nav_index WHERE site_id = ANY(%s) AND ({conditions})
-                    """,
+                    "SELECT path, label, lower(label),"
+                    " lower(coalesce(description,'') || ' ' || coalesce(array_to_string(tags,' '),'')), site_id"
+                    " FROM nav_index WHERE site_id = ANY(%s) AND (" + conditions + ")",
                     params,
                 )
                 rows = cur.fetchall()

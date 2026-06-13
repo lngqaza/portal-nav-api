@@ -144,3 +144,43 @@ def test_pii09_multiple_pii_types(scrub):
     assert 'foo@bar.com' not in result
     assert '0823456789' not in result
     assert '4111111111111111' not in result
+
+
+# ── PII-10: obfuscated / edge-case formats ───────────────────────────────────
+
+def test_pii10_sa_id_mixed_separator(scrub):
+    """SA ID with mixed dash+space separator is still caught."""
+    assert '[sa-id]' in scrub('id 900101 5009-087 please help')
+
+
+def test_pii10_cvv_no_space_before_digits(scrub):
+    """CVV with no space between keyword and colon and digits is caught."""
+    assert '[cvv]' in scrub('enter cvv:987 to confirm')
+
+
+def test_pii10_cvv_keyword_security_code(scrub):
+    """'security code' is NOT in the CVV pattern — must not false-positive."""
+    result = scrub('what is a security code 3 digits')
+    # security code without cvv/cvc keyword should not trigger [cvv]
+    assert '[cvv]' not in result
+
+
+def test_pii10_policy_not_swallowed_by_card_pattern(scrub):
+    """8-digit policy number alone (no card context) matches policy-no not card."""
+    result = scrub('policy 12345678 query')
+    assert '[policy-no]' in result
+    assert '[card]' not in result
+
+
+def test_pii10_acct_no_wins_over_policy_for_contextual_match(scrub):
+    """'account number' prefix should produce [acct-no], not [policy-no]."""
+    result = scrub('my account number 12345678 balance')
+    assert '[acct-no]' in result
+    assert '[policy-no]' not in result
+    """Query with multiple PII types — all must be scrubbed."""
+    query = 'my id 9001015009087 email foo@bar.com phone 0823456789 card 4111111111111111'
+    result = scrub(query)
+    assert '9001015009087' not in result
+    assert 'foo@bar.com' not in result
+    assert '0823456789' not in result
+    assert '4111111111111111' not in result

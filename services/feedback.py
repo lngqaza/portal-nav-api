@@ -195,11 +195,11 @@ def get_navigation_stats(days: int = 7, site: str = None) -> dict:
             with conn.cursor() as cur:
                 # Top navigated paths
                 cur.execute(
-                    f"""
+                    """
                     SELECT navigated_path, label, COUNT(*) AS nav_count,
                            COUNT(DISTINCT raw_query) AS unique_queries
                     FROM nav_navigate_log
-                    WHERE {where}
+                    WHERE """ + where + """
                     GROUP BY navigated_path, label
                     ORDER BY nav_count DESC
                     LIMIT 20

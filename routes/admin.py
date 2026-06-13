@@ -237,7 +237,8 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"SELECT layer_used,COUNT(*),AVG(response_ms) FROM nav_query_log WHERE {where} GROUP BY layer_used",
+                    "SELECT layer_used,COUNT(*),AVG(response_ms) FROM nav_query_log WHERE "
+                    + where + " GROUP BY layer_used",
                     base_params,
                 )
                 layer_rows = cur.fetchall()
@@ -253,7 +254,8 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
                     miss_params.append(site_filter)
                 miss_where = " AND ".join(miss_conditions)
                 cur.execute(
-                    f"SELECT raw_query,COUNT(*) FROM nav_query_log WHERE {miss_where} GROUP BY raw_query ORDER BY 2 DESC LIMIT 10",
+                    "SELECT raw_query,COUNT(*) FROM nav_query_log WHERE "
+                    + miss_where + " GROUP BY raw_query ORDER BY 2 DESC LIMIT 10",
                     miss_params,
                 )
                 top_misses = [r[0] for r in cur.fetchall()]

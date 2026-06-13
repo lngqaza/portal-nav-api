@@ -159,6 +159,42 @@ def test_config_put_rejects_negative_threshold():
     assert result["statusCode"] == 400
 
 
+# ── SEC-10: auto-promotion must not wipe existing aliases ───────────────────
+
+def test_auto_promote_preserves_existing_aliases():
+    """ON CONFLICT during auto-promotion must not overwrite aliases column."""
+    from unittest.mock import call
+    from services import feedback
+
+    inserted_aliases = {}
+
+    def _fake_execute(sql, params=None):
+        sql_clean = " ".join(sql.split())
+        # Capture the INSERT ... ON CONFLICT statement
+        if "INSERT INTO nav_hot_paths" in sql_clean and "ON CONFLICT" in sql_clean:
+            # aliases must NOT appear in the DO UPDATE SET clause
+            do_update_part = sql_clean[sql_clean.index("DO UPDATE"):]
+            assert "aliases" not in do_update_part, (
+                "aliases column must not be in ON CONFLICT DO UPDATE — "
+                "auto-promotion would wipe learned phrasings"
+            )
+
+    mock_cur = _mock_conn()[1]
+    mock_cur.execute.side_effect = _fake_execute
+    mock_cur.fetchone.return_value = (5,)  # count >= PROMOTE_UNIQUE_QUERIES
+
+    mock_conn = _mock_conn()[0]
+    mock_conn.__enter__ = lambda s: mock_conn
+    mock_conn.cursor.return_value.__enter__ = lambda s: mock_cur
+
+    with patch("services.feedback.get_conn", return_value=mock_conn):
+        with patch("services.feedback.settings") as ms:
+            ms.PROMOTE_UNIQUE_QUERIES = 3
+            ms.PROMOTE_MIN_CONFIDENCE = 0.6
+            ms.PROMOTE_WINDOW_DAYS = 7
+            feedback._maybe_promote("/claims", "My Claims", 0.9, "default")
+
+
 # ── SEC-09: malformed JSON body returns 400 not 500 ─────────────────────────
 
 def test_body_parse_error_returns_400():

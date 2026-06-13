@@ -42,3 +42,31 @@ class TestContentHash:
         a = {"path": "/a", "label": "A", "description": "d", "tags": ["t"]}
         b = dict(a, description="d2")
         assert content_hash(a) != content_hash(b)
+
+
+class TestDiscoverPageErrorPath:
+    """discover_page() must return an error dict when index_page() raises."""
+
+    def test_index_page_failure_returns_error_dict(self, monkeypatch):
+        from services import discovery
+
+        monkeypatch.setattr(discovery, "get_conn", lambda: (_ for _ in ()).throw(RuntimeError("DB down")))
+        monkeypatch.setattr(discovery, "index_page", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("ONNX fail")))
+
+        result = discovery.discover_page({"path": "/test", "label": "Test"}, "default")
+        assert result["indexed"] is False
+        assert result["reason"] == "error"
+        assert "detail" not in result, "exception detail must not leak to callers"
+
+    def test_index_page_failure_no_detail_key(self, monkeypatch):
+        from services import discovery
+
+        def _bad_index(*a, **kw):
+            raise RuntimeError("internal path: /var/task/secrets.py line 42")
+
+        monkeypatch.setattr(discovery, "get_conn", lambda: (_ for _ in ()).throw(Exception("hash check")))
+        monkeypatch.setattr(discovery, "index_page", _bad_index)
+
+        result = discovery.discover_page({"path": "/page", "label": "Page"}, "site1")
+        assert "detail" not in result
+        assert result["reason"] == "error"
