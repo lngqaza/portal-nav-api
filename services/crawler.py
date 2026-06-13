@@ -56,6 +56,7 @@ def validate_sitemap_url(url: str) -> None:
 # so a missing dependency surfaces immediately at cold start rather than
 # silently degrading to the vulnerable stdlib parser.
 import defusedxml.ElementTree as ET
+import xml.etree.ElementTree as _StdET  # Element type annotation only
 
 from services.embedding import index_page
 
@@ -168,7 +169,7 @@ _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 _MAX_SITEMAP_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
-def _fetch_xml(url: str) -> ET.Element:
+def _fetch_xml(url: str) -> _StdET.Element:
     """Fetch URL and parse as XML. Raises on HTTP error, redirect, or parse failure."""
     req = urllib.request.Request(url, headers={"User-Agent": "portal-nav-crawler/1.0"})
     try:
