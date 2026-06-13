@@ -82,7 +82,7 @@ def discover_page(body: dict, site: str = "default") -> dict:
         index_page(page["path"], page["label"], page["description"], page["tags"], site)
     except Exception as e:
         logger.error("index_page failed for %s: %s", page["path"], e)
-        return {"indexed": False, "reason": "error", "detail": str(e)}
+        return {"indexed": False, "reason": "error"}
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
