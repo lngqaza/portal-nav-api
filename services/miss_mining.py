@@ -72,7 +72,10 @@ def get_miss_report(days: int = 7, site: str = None) -> dict:
     # Build (core, raw, count) list
     entries = []
     for raw, cnt in rows:
-        core = intent_core(raw) or raw.lower().strip()
+        try:
+            core = intent_core(raw) or raw.lower().strip()
+        except Exception:
+            core = raw.lower().strip()
         entries.append((core, raw, cnt))
 
     # Greedy clustering by intent-core Levenshtein similarity

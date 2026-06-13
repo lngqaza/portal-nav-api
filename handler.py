@@ -51,16 +51,12 @@ if os.environ.get("LAMBDA_TASK_ROOT"):
 # Hard-fail at cold start if absent or wildcard in Lambda runtime — an open
 # CORS policy exposes admin endpoints to cross-origin JS on any page.
 _raw_cors = os.environ.get("CORS_ORIGINS", "").strip()
-if os.environ.get("LAMBDA_TASK_ROOT"):
-    if not _raw_cors or _raw_cors == "*":
-        raise RuntimeError(
-            "CORS_ORIGINS must be set to a comma-separated list of allowed origins "
-            "(not '*') in the Lambda environment variables."
-        )
-_CORS_ORIGINS = (
-    set(o.strip() for o in _raw_cors.split(",") if o.strip())
-    if _raw_cors else {"*"}
-)
+if not _raw_cors or _raw_cors == "*":
+    raise RuntimeError(
+        "CORS_ORIGINS must be set to a comma-separated list of allowed origins "
+        "(not '*'). Set it in the Lambda environment variables."
+    )
+_CORS_ORIGINS = set(o.strip() for o in _raw_cors.split(",") if o.strip())
 
 
 def _cors_origin(request_origin: str) -> str:

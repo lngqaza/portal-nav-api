@@ -229,11 +229,12 @@ def get_navigation_stats(days: int = 7, site: str = None) -> dict:
                           AND n.confidence >= %s
                           AND h.id IS NULL
                         GROUP BY n.navigated_path, n.label
-                        HAVING COUNT(DISTINCT n.raw_query) >= 1
+                        HAVING COUNT(DISTINCT n.raw_query) >= %s
                         ORDER BY uq DESC
                         LIMIT 10
                         """,
-                        (window_start, site, settings.PROMOTE_MIN_CONFIDENCE),
+                        (window_start, site, settings.PROMOTE_MIN_CONFIDENCE,
+                         settings.PROMOTE_UNIQUE_QUERIES),
                     )
                 else:
                     cur.execute(
@@ -246,11 +247,12 @@ def get_navigation_stats(days: int = 7, site: str = None) -> dict:
                           AND n.confidence >= %s
                           AND h.id IS NULL
                         GROUP BY n.navigated_path, n.label
-                        HAVING COUNT(DISTINCT n.raw_query) >= 1
+                        HAVING COUNT(DISTINCT n.raw_query) >= %s
                         ORDER BY uq DESC
                         LIMIT 10
                         """,
-                        (window_start, settings.PROMOTE_MIN_CONFIDENCE),
+                        (window_start, settings.PROMOTE_MIN_CONFIDENCE,
+                         settings.PROMOTE_UNIQUE_QUERIES),
                     )
                 candidates = [
                     {"path": r[0], "label": r[1], "unique_queries": r[2],

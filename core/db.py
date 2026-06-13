@@ -333,6 +333,9 @@ def _run_migrations():
             for key, value in cur.fetchall():
                 try:
                     site = key.split(":retention_days")[0]
+                    if not site or ":" in site:
+                        logger.warning("skipping ambiguous retention key: %r", key)
+                        continue
                     days = int(value)
                     cur.execute(
                         "DELETE FROM nav_query_log WHERE site_id=%s AND created_at < now() - (interval '1 day' * %s)",

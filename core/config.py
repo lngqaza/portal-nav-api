@@ -27,18 +27,35 @@ def _parse_keys(raw: str):
 _KEYS, _KEY_SCOPES = _parse_keys(os.environ.get("API_KEYS", ""))
 
 
+def _float_env(name: str, default: str, lo: float, hi: float) -> float:
+    val = float(os.environ.get(name, default))
+    if not (lo <= val <= hi):
+        raise ValueError(f"{name}={val} out of range [{lo}, {hi}]")
+    return val
+
+
+def _int_env(name: str, default: str, lo: int, hi: int) -> int:
+    val = int(os.environ.get(name, default))
+    if not (lo <= val <= hi):
+        raise ValueError(f"{name}={val} out of range [{lo}, {hi}]")
+    return val
+
+
+_VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
 class Settings:
     DATABASE_URL: str = os.environ.get("DATABASE_URL", "")
     API_KEYS: list = _KEYS
     KEY_SCOPES: dict = _KEY_SCOPES
     # Ranking multiplier for results from scope sites other than the key's
     # home site — shared content stays findable but home pages win ties.
-    CROSS_SITE_PENALTY: float = float(os.environ.get("CROSS_SITE_PENALTY", "0.85"))
+    CROSS_SITE_PENALTY: float = _float_env("CROSS_SITE_PENALTY", "0.85", 0.0, 1.0)
     # Score multiplier applied to candidates sharing the user's current page segment.
-    CONTEXT_BOOST_FACTOR: float = float(os.environ.get("CONTEXT_BOOST_FACTOR", "1.10"))
+    CONTEXT_BOOST_FACTOR: float = _float_env("CONTEXT_BOOST_FACTOR", "1.10", 0.01, 10.0)
     # Fixed confidence score assigned to all L3 keyword fallback results. Kept below
     # the auto-navigate threshold so the client always presents them as a pick-list.
-    L3_CONFIDENCE: float = float(os.environ.get("L3_CONFIDENCE", "0.50"))
+    L3_CONFIDENCE: float = _float_env("L3_CONFIDENCE", "0.50", 0.0, 1.0)
     # Set to "true" to enable L4 weak-candidate fallback (off by default — surfacing
     # low-confidence results can lower perceived quality in production portals).
     L4_ENABLED: bool = os.environ.get("L4_ENABLED", "false").lower() == "true"
@@ -49,10 +66,10 @@ class Settings:
     RERANKER_MODEL_PATH: str = os.environ.get(
         "RERANKER_MODEL_PATH", "/var/task/onnx_models/reranker/model.onnx"
     )
-    HOT_PATH_THRESHOLD: float = float(os.environ.get("HOT_PATH_THRESHOLD", "0.75"))
-    L1_THRESHOLD: float = float(os.environ.get("L1_THRESHOLD", "0.65"))
-    L2_THRESHOLD: float = float(os.environ.get("L2_THRESHOLD", "0.50"))
-    MAX_HOT_PATHS: int = int(os.environ.get("MAX_HOT_PATHS", "70"))
+    HOT_PATH_THRESHOLD: float = _float_env("HOT_PATH_THRESHOLD", "0.75", 0.0, 1.0)
+    L1_THRESHOLD: float = _float_env("L1_THRESHOLD", "0.65", 0.0, 1.0)
+    L2_THRESHOLD: float = _float_env("L2_THRESHOLD", "0.50", 0.0, 1.0)
+    MAX_HOT_PATHS: int = _int_env("MAX_HOT_PATHS", "70", 1, 1000)
     SERVICE_VERSION: str = os.environ.get("SERVICE_VERSION", "1.0.0")
     LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO")
     # ── DB pool sizing ───────────────────────────────────────────────────────
@@ -60,18 +77,18 @@ class Settings:
     # maxconn=5 is right for Lambda (each instance is single-threaded for
     # Lambda itself, but ThreadPoolExecutor in handle_batch can use up to 5
     # workers). Expose as env vars so load tests can tune without code changes.
-    DB_POOL_MINCONN: int = int(os.environ.get("DB_POOL_MINCONN", "1"))
-    DB_POOL_MAXCONN: int = int(os.environ.get("DB_POOL_MAXCONN", "5"))
+    DB_POOL_MINCONN: int = _int_env("DB_POOL_MINCONN", "1", 1, 20)
+    DB_POOL_MAXCONN: int = _int_env("DB_POOL_MAXCONN", "5", 1, 100)
     # ── Feedback / promotion tuning ──────────────────────────────────────────
-    PROMOTE_UNIQUE_QUERIES: int = int(os.environ.get("PROMOTE_UNIQUE_QUERIES", "3"))
-    PROMOTE_WINDOW_DAYS: int = int(os.environ.get("PROMOTE_WINDOW_DAYS", "7"))
-    PROMOTE_MIN_CONFIDENCE: float = float(os.environ.get("PROMOTE_MIN_CONFIDENCE", "0.60"))
-    MAX_ALIASES: int = int(os.environ.get("MAX_ALIASES", "12"))
-    ALIAS_MAX_LEN: int = int(os.environ.get("ALIAS_MAX_LEN", "60"))
-    ALIAS_DUP_RATIO: float = float(os.environ.get("ALIAS_DUP_RATIO", "0.90"))
+    PROMOTE_UNIQUE_QUERIES: int = _int_env("PROMOTE_UNIQUE_QUERIES", "3", 1, 100)
+    PROMOTE_WINDOW_DAYS: int = _int_env("PROMOTE_WINDOW_DAYS", "7", 1, 365)
+    PROMOTE_MIN_CONFIDENCE: float = _float_env("PROMOTE_MIN_CONFIDENCE", "0.60", 0.0, 1.0)
+    MAX_ALIASES: int = _int_env("MAX_ALIASES", "12", 1, 100)
+    ALIAS_MAX_LEN: int = _int_env("ALIAS_MAX_LEN", "60", 1, 500)
+    ALIAS_DUP_RATIO: float = _float_env("ALIAS_DUP_RATIO", "0.90", 0.0, 1.0)
     # ── Miss-mining tuning ───────────────────────────────────────────────────
-    CLUSTER_SIMILARITY: float = float(os.environ.get("CLUSTER_SIMILARITY", "0.80"))
-    MIN_CLUSTER_COUNT: int = int(os.environ.get("MIN_CLUSTER_COUNT", "1"))
+    CLUSTER_SIMILARITY: float = _float_env("CLUSTER_SIMILARITY", "0.80", 0.0, 1.0)
+    MIN_CLUSTER_COUNT: int = _int_env("MIN_CLUSTER_COUNT", "1", 1, 1000)
     # ── Per-tenant threshold overrides ───────────────────────────────────────
     # Populated at cold start by _load_config_overrides() from nav_config rows
     # with keys of the form "<site_id>:L1_THRESHOLD" etc.  Declared here so
