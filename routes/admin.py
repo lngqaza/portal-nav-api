@@ -295,7 +295,10 @@ def handle_admin(path: str, method: str, body: dict, params: dict):
             for k, cast in mapping.items():
                 val = body.get(k) if body.get(k) is not None else body.get(k.lower())
                 if val is not None:
-                    cast_val = cast(val)
+                    try:
+                        cast_val = cast(val)
+                    except (TypeError, ValueError):
+                        return _r(400, {"error": f"{k} must be a valid {cast.__name__}"})
                     lo, hi = _CONFIG_BOUNDS[k][1], _CONFIG_BOUNDS[k][2]
                     if not (lo <= cast_val <= hi):
                         return _r(400, {"error": f"{k} must be between {lo} and {hi}"})
