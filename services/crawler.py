@@ -52,13 +52,10 @@ def validate_sitemap_url(url: str) -> None:
         if any(w in str(exc) for w in ('private', 'loopback', 'link_local', 'reserved', 'permitted')):
             raise
 
-try:
-    # defusedxml prevents XML entity expansion attacks (billion laughs, XXE).
-    # Required — listed in requirements.txt. Fall back to stdlib only if somehow
-    # absent so tests don't break; the Lambda image always has it.
-    import defusedxml.ElementTree as ET
-except ImportError:  # pragma: no cover
-    import xml.etree.ElementTree as ET  # type: ignore[no-redef]
+# defusedxml prevents XXE and billion-laughs attacks. Hard-fail at import time
+# so a missing dependency surfaces immediately at cold start rather than
+# silently degrading to the vulnerable stdlib parser.
+import defusedxml.ElementTree as ET
 
 from services.embedding import index_page
 
@@ -154,12 +151,29 @@ def bulk_index(pages: list, site: str = "default") -> dict:
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Raise on any HTTP redirect so SSRF bypass via open-redirect is impossible.
+
+    urlopen() follows redirects by default. An attacker can host a public URL
+    that issues a 301 to 169.254.169.254 — validate_sitemap_url() checks only
+    the original URL, so the redirect destination is never validated.
+    """
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.URLError(f"Redirect to {newurl!r} blocked (SSRF protection)")
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+# Cap sitemap response size to prevent OOM from attacker-hosted multi-GB files.
+_MAX_SITEMAP_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
 def _fetch_xml(url: str) -> ET.Element:
-    """Fetch URL and parse as XML. Raises on HTTP error or parse failure."""
+    """Fetch URL and parse as XML. Raises on HTTP error, redirect, or parse failure."""
     req = urllib.request.Request(url, headers={"User-Agent": "portal-nav-crawler/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as resp:
-            content = resp.read()
+        with _NO_REDIRECT_OPENER.open(req, timeout=REQUEST_TIMEOUT_S) as resp:
+            content = resp.read(_MAX_SITEMAP_BYTES)
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"HTTP {exc.code} fetching {url}") from exc
     except urllib.error.URLError as exc:

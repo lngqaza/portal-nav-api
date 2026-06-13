@@ -78,7 +78,11 @@ def discover_page(body: dict, site: str = "default") -> dict:
         logger.warning("discover hash check failed (indexing anyway): %s", e)
 
     # index_page embeds and upserts label/description/tags
-    index_page(page["path"], page["label"], page["description"], page["tags"], site)
+    try:
+        index_page(page["path"], page["label"], page["description"], page["tags"], site)
+    except Exception as e:
+        logger.error("index_page failed for %s: %s", page["path"], e)
+        return {"indexed": False, "reason": "error", "detail": str(e)}
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:

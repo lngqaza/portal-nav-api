@@ -166,7 +166,11 @@ def _body(event):
     body = event.get("body") or "{}"
     if event.get("isBase64Encoded"):
         import base64
-        body = base64.b64decode(body).decode()
+        import binascii
+        try:
+            body = base64.b64decode(body).decode()
+        except (binascii.Error, ValueError, UnicodeDecodeError) as exc:
+            raise ValueError(f"Invalid base64 body: {exc}") from exc
     parsed = json.loads(body)  # raises ValueError → 400 via the except ValueError handler
     if not isinstance(parsed, dict):
         raise ValueError("Request body must be a JSON object")
