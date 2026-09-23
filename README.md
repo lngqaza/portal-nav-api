@@ -198,3 +198,4 @@ Thresholds can also be updated at runtime via `PUT /admin/config` without redepl
 - AppSec pipeline: CodeQL + Semgrep (7 custom rules) + OWASP-DC + Gitleaks + Trivy + ZAP
 - Runbook: [`docs/governance/appsec-runbook.md`](docs/governance/appsec-runbook.md)
 - Findings: GitHub → Security → Code scanning alerts
+# Test deployment 1790152222
