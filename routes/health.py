@@ -5,6 +5,7 @@ from services.embedding import _session as emb_session
 
 
 def handle_health():
+    import datetime
     db_ok = check_connection()
     count = 0
     if db_ok:
@@ -19,6 +20,7 @@ def handle_health():
         "body": json.dumps({
             "status": "ok",
             "version": settings.SERVICE_VERSION,
+            "deployed_at": datetime.datetime.utcnow().isoformat(),
             "db_connected": db_ok,
             "embedding_model_loaded": emb_session is not None,
             "hot_path_count": count,
