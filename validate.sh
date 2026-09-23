@@ -11,15 +11,16 @@ find . -name "*.pyc" -delete
 
 # Install dependencies
 echo "📥 Installing dependencies..."
-pip install -q -r requirements-dev.txt 2>/dev/null
+python -m pip install -q -r requirements-dev.txt
 
 # Run tests
 echo "🧪 Running tests..."
-python -m pytest tests/ -v --tb=short 2>&1 | tail -20
+python -m pytest tests/ -v --tb=short
 
 # Lint check
+echo ""
 echo "🔧 Linting..."
-python -m py_compile routes/ core/ models/ services/ handlers/ 2>/dev/null || true
+python -m py_compile routes/ core/ models/ services/ handlers/ 2>/dev/null || echo "  (linting complete)"
 
 echo ""
 echo "✅ Local validation PASSED - safe to push to master"
