@@ -1,0 +1,67 @@
+name: Deploy to Lambda
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  AWS_REGION: eu-west-1
+  LAMBDA_FUNCTION: portal-nav-api
+  ECR_REGISTRY: portal-nav-api
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Build Docker image
+        run: |
+          docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REGISTRY:${{ github.sha }} .
+          docker tag $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REGISTRY:${{ github.sha }} $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REGISTRY:latest
+
+      - name: Push to ECR
+        run: |
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REGISTRY:${{ github.sha }}
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REGISTRY:latest
+
+      - name: Update Lambda function
+        run: |
+          aws lambda update-function-code \
+            --function-name $LAMBDA_FUNCTION \
+            --image-uri $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REGISTRY:${{ github.sha }} \
+            --region $AWS_REGION
+
+      - name: Wait for update
+        run: sleep 10
+
+      - name: Run smoke tests
+        env:
+          NAV_API_URL: https://${{ secrets.API_GATEWAY_ID }}.execute-api.eu-west-1.amazonaws.com
+          NAV_API_KEY: ${{ secrets.NAV_API_KEY }}
+          NAV_ADMIN_TOKEN: ${{ secrets.NAV_ADMIN_TOKEN }}
+        run: |
+          curl -s -X GET $NAV_API_URL/health -H "x-api-key: $NAV_API_KEY" | grep -q "ok" && echo "✓ Health check passed" || exit 1
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Deployment complete"
+          echo "Lambda: $LAMBDA_FUNCTION"
+          echo "Image: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REGISTRY:${{ github.sha }}"
+          echo "Commit: ${{ github.sha }}"
