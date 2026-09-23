@@ -13,7 +13,7 @@ jobs:
       id-token: write
     env:
       AWS_REGION: eu-west-1
-      AWS_ACCOUNT_ID: '684756697968'
+      AWS_ACCOUNT_ID: 684756697968
       LAMBDA_FUNCTION: portal-nav-api
       ECR_REGISTRY: portal-nav-api
 
