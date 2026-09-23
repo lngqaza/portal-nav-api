@@ -5,18 +5,17 @@ on:
     branches:
       - master
 
-env:
-  AWS_REGION: eu-west-1
-  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-  LAMBDA_FUNCTION: portal-nav-api
-  ECR_REGISTRY: portal-nav-api
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+    env:
+      AWS_REGION: eu-west-1
+      AWS_ACCOUNT_ID: '684756697968'
+      LAMBDA_FUNCTION: portal-nav-api
+      ECR_REGISTRY: portal-nav-api
 
     steps:
       - name: Checkout code
