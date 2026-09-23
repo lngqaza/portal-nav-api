@@ -1,0 +1,126 @@
+{
+  "site_name": "SafeGuard Insurance",
+  "site_url": "http://localhost:8000/demo-site",
+  "indexed_pages": [
+    {
+      "path": "/index.html",
+      "title": "Home",
+      "label": "SafeGuard Insurance - Home",
+      "description": "Welcome to SafeGuard Insurance. Trusted insurance protection with fast claims processing, competitive rates, and 24/7 support.",
+      "keywords": ["insurance", "home", "safeguard", "protection", "coverage", "quotes"],
+      "section": "main",
+      "priority": 1.0
+    },
+    {
+      "path": "/products/car-insurance.html",
+      "title": "Car Insurance",
+      "label": "Car Insurance Plans",
+      "description": "Protect your vehicle with comprehensive car insurance coverage. Basic, Standard, and Premium plans available. Liability, collision, comprehensive, and medical payment coverage.",
+      "keywords": ["car insurance", "auto insurance", "vehicle protection", "liability coverage", "collision", "comprehensive", "rates", "discounts"],
+      "section": "products",
+      "priority": 0.9
+    },
+    {
+      "path": "/products/home-insurance.html",
+      "title": "Home Insurance",
+      "label": "Home Insurance Plans",
+      "description": "Protect your most valuable investment with home insurance coverage. Dwelling protection, personal property, liability, and additional living expenses.",
+      "keywords": ["home insurance", "homeowners insurance", "house protection", "dwelling coverage", "property damage", "liability", "deductible"],
+      "section": "products",
+      "priority": 0.9
+    },
+    {
+      "path": "/products/life-insurance.html",
+      "title": "Life Insurance",
+      "label": "Life Insurance Plans",
+      "description": "Ensure your family's financial security with life insurance. Term Life 10/20 and Whole Life options. Coverage amounts from $100K to $5M+.",
+      "keywords": ["life insurance", "term life", "whole life", "death benefit", "coverage", "beneficiary", "medical underwriting"],
+      "section": "products",
+      "priority": 0.9
+    },
+    {
+      "path": "/claims/file-claim.html",
+      "title": "File a Claim",
+      "label": "File an Insurance Claim",
+      "description": "File an insurance claim easily. Report incidents, provide details, submit documentation. Claims processed within 48 hours. 24/7 claims support available.",
+      "keywords": ["file claim", "file insurance claim", "submit claim", "claims process", "accident", "damage report", "claim status"],
+      "section": "claims",
+      "priority": 0.95
+    },
+    {
+      "path": "/support/contact.html",
+      "title": "Contact Support",
+      "label": "Contact & Support",
+      "description": "Contact SafeGuard Insurance support. 24/7 phone support, live chat, email, and online account management. FAQ and customer service.",
+      "keywords": ["contact", "support", "customer service", "phone", "email", "chat", "help", "faq"],
+      "section": "support",
+      "priority": 0.85
+    }
+  ],
+  "aliases": {
+    "submit claim": "/claims/file-claim.html",
+    "file insurance claim": "/claims/file-claim.html",
+    "file a claim": "/claims/file-claim.html",
+    "claims": "/claims/file-claim.html",
+    "car coverage": "/products/car-insurance.html",
+    "vehicle insurance": "/products/car-insurance.html",
+    "auto insurance rates": "/products/car-insurance.html",
+    "home coverage": "/products/home-insurance.html",
+    "homeowner protection": "/products/home-insurance.html",
+    "house insurance": "/products/home-insurance.html",
+    "life coverage": "/products/life-insurance.html",
+    "life protection": "/products/life-insurance.html",
+    "death benefit": "/products/life-insurance.html",
+    "customer support": "/support/contact.html",
+    "contact us": "/support/contact.html",
+    "phone number": "/support/contact.html",
+    "live chat": "/support/contact.html",
+    "email support": "/support/contact.html",
+    "homepage": "/index.html",
+    "main page": "/index.html"
+  },
+  "hot_paths": [
+    {
+      "path": "/claims/file-claim.html",
+      "label": "File a Claim",
+      "aliases": ["submit claim", "file claim", "claim form"],
+      "hits": 450,
+      "pinned": true
+    },
+    {
+      "path": "/products/car-insurance.html",
+      "label": "Car Insurance Plans",
+      "aliases": ["car insurance", "auto coverage", "vehicle insurance"],
+      "hits": 380,
+      "pinned": true
+    },
+    {
+      "path": "/products/home-insurance.html",
+      "label": "Home Insurance Plans",
+      "aliases": ["home insurance", "homeowner coverage", "house protection"],
+      "hits": 320,
+      "pinned": true
+    },
+    {
+      "path": "/support/contact.html",
+      "label": "Contact Support",
+      "aliases": ["contact us", "support", "customer service", "phone"],
+      "hits": 280,
+      "pinned": true
+    },
+    {
+      "path": "/products/life-insurance.html",
+      "label": "Life Insurance Plans",
+      "aliases": ["life insurance", "term life", "coverage"],
+      "hits": 210,
+      "pinned": false
+    }
+  ],
+  "search_config": {
+    "L0_THRESHOLD": 0.75,
+    "L1_THRESHOLD": 0.65,
+    "L2_THRESHOLD": 0.50,
+    "MAX_HOT_PATHS": 70,
+    "RERANK_TOP_K": 10
+  }
+}
