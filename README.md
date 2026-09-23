@@ -199,3 +199,4 @@ Thresholds can also be updated at runtime via `PUT /admin/config` without redepl
 - Runbook: [`docs/governance/appsec-runbook.md`](docs/governance/appsec-runbook.md)
 - Findings: GitHub → Security → Code scanning alerts
 # Test deployment 1790152222
+# Auto-deploy test 1790154673
